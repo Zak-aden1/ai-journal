@@ -8,6 +8,9 @@ import { FloatingActionButton } from '@/components/FloatingActionButton';
 import { HabitCreationModal } from '@/components/HabitCreationModal';
 import { HabitManagementScreen } from '@/components/HabitManagementScreen';
 import { FeaturedGoalCarousel } from '@/components/FeaturedGoalCarousel';
+import { HomeHeader } from '@/components/home/HomeHeader';
+import { HabitsSection } from '@/components/home/HabitsSection';
+import { ProgressOverview } from '@/components/home/ProgressOverview';
 
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/hooks/useToast';
@@ -34,7 +37,6 @@ export default function HomeScreen() {
     showStreakToast, 
     showAchievementToast, 
     showEncouragementToast, 
-    showTipToast,
     hideToast, 
     isVisible: toastVisible 
   } = useToast();
@@ -445,24 +447,10 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.greetingContainer}>
-            <Text style={styles.greetingTitle}>Hey Zak</Text>
-            <Text style={styles.greetingSubtitle}>
-              {getContextualGreeting()}
-            </Text>
-          </View>
-
-          <View style={styles.quickActions}>
-            <TouchableOpacity
-              style={styles.quickActionButton}
-              onPress={() => showTipToast()}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.quickActionIcon}>💡</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <HomeHeader 
+          userName="Zak" 
+          contextualGreeting={getContextualGreeting()} 
+        />
         
         {/* Goal Carousel Section */}
         {isHydrated && (goalsWithIds.length > 0 || primaryGoal) && (
@@ -511,148 +499,23 @@ export default function HomeScreen() {
 
 
         {/* Daily Habits - Simplified */}
-        <View style={styles.habitsSection}>
-          <View style={styles.habitsSectionHeader}>
-            <Text style={styles.habitsTitle}>Today&apos;s Habits</Text>
-            <View style={styles.dailyProgressContainer}>
-              <Text style={styles.progressText}>
-                {completedTodayCount} of {primaryGoalHabits.length} completed
-              </Text>
-              <View style={styles.progressBar}>
-                <Animated.View 
-                  style={[
-                    styles.progressFill, 
-                    { 
-                      width: `${primaryGoalHabits.length > 0 ? (completedTodayCount / primaryGoalHabits.length) * 100 : 0}%`,
-                      backgroundColor: completedTodayCount === primaryGoalHabits.length && primaryGoalHabits.length > 0 
-                        ? theme.colors.status.success 
-                        : theme.colors.primary
-                    }
-                  ]} 
-                />
-              </View>
-            </View>
-          </View>
-          
-          {/* Next Action Hint */}
-          {recommendedHabit && !recommendedHabit.completed && (
-            <View style={styles.nextActionHint}>
-              <Text style={styles.nextActionText}>
-                💫 Up next: <Text style={styles.nextActionHabit}>{recommendedHabit.name}</Text>
-              </Text>
-            </View>
-          )}
-          
-          <View style={styles.habitsList}>
-            {primaryGoalHabits.map((habit) => (
-              <TouchableOpacity
-                key={habit.id}
-                style={[
-                  styles.habitCard,
-                  habit.completed && styles.habitCardCompleted,
-                  recommendedHabit?.id === habit.id && !habit.completed && styles.habitCardRecommended
-                ]}
-                onPressIn={() => {
-                  if (!habit.completed) {
-                    handleHabitHoldStart(habit.id);
-                    Haptics.selectionAsync();
-                  }
-                }}
-                onPressOut={handleHabitHoldEnd}
-                activeOpacity={habit.completed ? 0.8 : 0.9}
-                disabled={habit.completed}
-              >
-                <View style={styles.habitContent}>
-                  <View style={styles.habitHeader}>
-                    <Text style={[styles.habitName, habit.completed && styles.completedText]}>
-                      {habit.name}
-                    </Text>
-                    <View style={styles.habitTime}>
-                      <Text style={styles.timeIcon}>🕐</Text>
-                      <Text style={styles.timeText}>{habit.time}</Text>
-                    </View>
-                  </View>
-
-                  <Text style={[styles.habitDescription, habit.completed && styles.completedText]}>
-                    {habit.description}
-                  </Text>
-
-                  <View style={styles.habitFooter}>
-                    <View style={styles.streakInfo}>
-                      <Text style={styles.streakEmoji}>🔥</Text>
-                      <Text style={styles.streakNumber}>{habit.streak}</Text>
-                    </View>
-                    <Text style={styles.habitStatus}>
-                      {habit.completed ? '✓ Done' : 'Hold to complete'}
-                    </Text>
-                  </View>
-                </View>
-
-                {habit.completed ? (
-                  <View style={[styles.habitCheckButton, styles.completedButton]}>
-                    <Text style={styles.completedCheckmark}>✓</Text>
-                  </View>
-                ) : (
-                  <Animated.View style={styles.habitCheckButton}>
-                    {holdingHabit === habit.id ? (
-                      <>
-                        <Animated.View
-                          style={[
-                            styles.progressRing,
-                            {
-                              transform: [{
-                                rotate: progressRef.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: ['0deg', '360deg']
-                                })
-                              }]
-                            }
-                          ]}
-                        />
-                        <View style={styles.habitCheckIcon} />
-                      </>
-                    ) : (
-                      <View style={styles.habitCheckIcon} />
-                    )}
-                  </Animated.View>
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        <HabitsSection 
+          habits={primaryGoalHabits}
+          completedTodayCount={completedTodayCount}
+          recommendedHabitId={recommendedHabit?.id}
+          holdingHabitId={holdingHabit}
+          progressRef={progressRef}
+          onHabitHoldStart={handleHabitHoldStart}
+          onHabitHoldEnd={handleHabitHoldEnd}
+        />
 
         {/* Secondary Goals - Collapsible */}
-        {secondaryGoals.length > 0 && (
-          <View style={styles.secondaryGoalsContainer}>
-            <TouchableOpacity
-              style={styles.secondaryGoalsHeader}
-              onPress={() => setShowSecondaryGoals(!showSecondaryGoals)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.secondaryGoalsTitle}>
-                📊 Other Goals ({secondaryGoals.length})
-              </Text>
-              <Text style={styles.expandIcon}>{showSecondaryGoals ? '▲' : '▼'}</Text>
-            </TouchableOpacity>
-            
-            {showSecondaryGoals && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 4 }}>
-                {secondaryGoals.map((goal) => (
-                  <TouchableOpacity 
-                    key={goal.id} 
-                    style={styles.secondaryGoalCard}
-                    onPress={() => setPrimaryGoal(goal.id)}
-                  >
-                    <Text style={styles.secondaryGoalTitle}>📋 {goal.title}</Text>
-                    <Text style={styles.secondaryGoalStats}>
-                      {goal.completedToday}/{goal.habitCount} completed
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        )}
+        <ProgressOverview 
+          secondaryGoals={secondaryGoals}
+          showSecondaryGoals={showSecondaryGoals}
+          onToggleSecondaryGoals={() => setShowSecondaryGoals(!showSecondaryGoals)}
+          onGoalPress={setPrimaryGoal}
+        />
 
         {/* Standalone Habits Section - Only show if user has real standalone habits */}
         {isHydrated && standaloneHabits.length > 0 && (

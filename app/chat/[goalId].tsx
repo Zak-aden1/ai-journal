@@ -16,6 +16,9 @@ import { AvatarRenderer } from '@/components/avatars';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppStore, ConversationMessage } from '@/stores/app';
 import * as Haptics from 'expo-haptics';
+import { generateAIResponse, initializeChatAI } from '@/services/ai/chat';
+import { GoalContextBuilder, extractAppStateForContext } from '@/services/ai/contextBuilder';
+import { getAIConfig } from '@/services/ai/config';
 
 const QUICK_PROMPTS = [
   { text: "I'm feeling discouraged", emotion: 'supportive' as const },
@@ -35,10 +38,11 @@ export default function GoalChatScreen() {
     habitsWithIds, 
     avatar, 
     updateAvatarVitality,
-    getAvatarResponse,
     updateAvatarMemoryWithActivity,
     getGoalConversation,
-    addConversationMessage
+    addConversationMessage,
+    goalMeta,
+    conversations
   } = useAppStore();
 
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -63,7 +67,11 @@ export default function GoalChatScreen() {
     }
   }
   
-  const goalHabits = habitsWithIds[goalId || ''] || [];
+
+  // Initialize AI service
+  useEffect(() => {
+    initializeChatAI(getAIConfig());
+  }, []);
 
   useEffect(() => {
     if (!currentGoal || !goalId) return;
@@ -126,47 +134,41 @@ export default function GoalChatScreen() {
   }, [goalId, getGoalConversation]);
 
 
-  const generateGoalResponse = (userMessage: string, emotion?: 'supportive' | 'celebratory' | 'motivational' | 'wise'): string => {
-    if (!currentGoal) return "I'm here to help!";
+  const generateGoalResponse = async (userMessage: string, emotion?: 'supportive' | 'celebratory' | 'motivational' | 'wise'): Promise<{ content: string; emotion: 'supportive' | 'celebratory' | 'motivational' | 'wise'; vitalityImpact: number }> => {
+    if (!currentGoal || !goalId) return { content: "I'm here to help!", emotion: 'supportive', vitalityImpact: 1 };
     
-    const vitality = avatar.vitality;
-    const goalTitle = currentGoal.title;
-    
-    // Detect emotional keywords
-    const isDiscouraged = /discouraged|frustrated|stuck|hard|difficult|giving up/i.test(userMessage);
-    const isCelebrating = /completed|finished|did it|success|great|amazing|proud/i.test(userMessage);
-    const isMotivation = /motivat|inspire|help|support|encourage|how.*doing/i.test(userMessage);
-    
-    let response = "";
-    
-    if (isCelebrating || emotion === 'celebratory') {
-      if (vitality >= 80) {
-        response = `🌟 YES! I felt that energy boost immediately! Your progress on ${goalTitle} is absolutely incredible. I'm practically glowing with vitality!`;
-      } else {
-        response = `🎉 Amazing work! I can feel myself getting stronger because of your dedication to ${goalTitle}. Every step you take helps us both grow!`;
-      }
-    } else if (isDiscouraged || emotion === 'supportive') {
-      if (vitality <= 30) {
-        response = `I understand how you feel - I've been struggling too. But remember, we're in this together. ${goalTitle} is important to both of us. What small step can we take today?`;
-      } else {
-        response = `Hey, it's okay to feel this way. ${goalTitle} is challenging, but I believe in you completely. I've seen your strength before, and I know you have it in you.`;
-      }
-    } else if (isMotivation || emotion === 'motivational') {
-      const completionEncouragement = goalHabits.length > 0 
-        ? ` Your ${goalHabits.length} supporting habits are the building blocks of this dream.`
-        : "";
+    try {
+      // Extract app state for context building
+      const appState = extractAppStateForContext(goalId, {
+        goalsWithIds,
+        goalMeta,
+        habitsWithIds,
+        avatar,
+        conversations,
+      });
       
-      if (vitality >= 80) {
-        response = `We're doing phenomenally! ${goalTitle} is thriving because of your consistency.${completionEncouragement} I'm feeling stronger than ever!`;
-      } else {
-        response = `${goalTitle} is such a meaningful journey we're on together.${completionEncouragement} Every day you show up, I grow stronger. How can I support you today?`;
-      }
-    } else {
-      // General conversation
-      response = getAvatarResponse('general').replace(/companion|avatar/gi, goalTitle);
+      // Build comprehensive context
+      const goalContext = GoalContextBuilder.buildGoalContext(appState);
+      const conversationContext = GoalContextBuilder.buildConversationContext(messages);
+      
+      // Generate AI response
+      const aiResponse = await generateAIResponse(userMessage, goalContext, conversationContext);
+      
+      return {
+        content: aiResponse.content,
+        emotion: aiResponse.emotion,
+        vitalityImpact: aiResponse.vitalityImpact,
+      };
+    } catch (error) {
+      console.warn('AI response failed, using fallback:', error);
+      
+      // Fallback to simple response
+      return {
+        content: `I'm here to support you with ${currentGoal.title}. What's on your mind?`,
+        emotion: emotion || 'supportive',
+        vitalityImpact: 2,
+      };
     }
-    
-    return response;
   };
 
   const handleSendMessage = async () => {
@@ -195,32 +197,38 @@ export default function GoalChatScreen() {
       ])
     ).start();
 
-    // Simulate thinking time
-    setTimeout(() => {
-      const response = generateGoalResponse(userMessage.content);
-      const vitalityBoost = Math.floor(Math.random() * 3) + 1; // 1-3 boost
-      
-      const goalMessage: ConversationMessage = {
-        id: `msg-${Date.now()}-goal`,
-        content: response,
-        isUser: false,
-        timestamp: Date.now(),
-        goalId: goalId,
-        emotion: 'supportive',
-        vitalityImpact: vitalityBoost
-      };
+    // Generate AI response
+    setTimeout(async () => {
+      try {
+        const aiResponse = await generateGoalResponse(userMessage.content);
+        
+        const goalMessage: ConversationMessage = {
+          id: `msg-${Date.now()}-goal`,
+          content: aiResponse.content,
+          isUser: false,
+          timestamp: Date.now(),
+          goalId: goalId,
+          emotion: aiResponse.emotion,
+          vitalityImpact: aiResponse.vitalityImpact
+        };
 
-      addConversationMessage(goalMessage);
-      setIsTyping(false);
-      typingAnimation.stopAnimation();
-      typingAnimation.setValue(0);
+        addConversationMessage(goalMessage);
+        setIsTyping(false);
+        typingAnimation.stopAnimation();
+        typingAnimation.setValue(0);
 
-      // Apply vitality boost
-      updateAvatarVitality(Math.min(100, avatar.vitality + vitalityBoost));
-      updateAvatarMemoryWithActivity('goal_interaction', currentGoal.title);
-      
-      // Success haptic
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        // Apply vitality boost from AI response
+        updateAvatarVitality(Math.min(100, avatar.vitality + aiResponse.vitalityImpact));
+        updateAvatarMemoryWithActivity('goal_interaction', currentGoal.title);
+        
+        // Success haptic
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (error) {
+        console.error('Failed to generate AI response:', error);
+        setIsTyping(false);
+        typingAnimation.stopAnimation();
+        typingAnimation.setValue(0);
+      }
     }, 1500 + Math.random() * 1000); // 1.5-2.5 seconds
   };
 
@@ -240,26 +248,30 @@ export default function GoalChatScreen() {
     
     Haptics.selectionAsync();
 
-    setTimeout(() => {
-      const response = generateGoalResponse(prompt.text, prompt.emotion);
-      const vitalityBoost = 2; // Fixed boost for quick prompts
-      
-      const goalMessage: ConversationMessage = {
-        id: `msg-${Date.now()}-goal`,
-        content: response,
-        isUser: false,
-        timestamp: Date.now(),
-        goalId: goalId,
-        emotion: prompt.emotion,
-        vitalityImpact: vitalityBoost
-      };
+    setTimeout(async () => {
+      try {
+        const aiResponse = await generateGoalResponse(prompt.text, prompt.emotion);
+        
+        const goalMessage: ConversationMessage = {
+          id: `msg-${Date.now()}-goal`,
+          content: aiResponse.content,
+          isUser: false,
+          timestamp: Date.now(),
+          goalId: goalId,
+          emotion: aiResponse.emotion,
+          vitalityImpact: aiResponse.vitalityImpact
+        };
 
-      addConversationMessage(goalMessage);
-      setIsTyping(false);
+        addConversationMessage(goalMessage);
+        setIsTyping(false);
 
-      updateAvatarVitality(Math.min(100, avatar.vitality + vitalityBoost));
-      
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        updateAvatarVitality(Math.min(100, avatar.vitality + aiResponse.vitalityImpact));
+        
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (error) {
+        console.error('Failed to generate AI response for quick prompt:', error);
+        setIsTyping(false);
+      }
     }, 1200);
   };
 
@@ -302,32 +314,18 @@ export default function GoalChatScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-              <Text style={styles.backText}>← Back</Text>
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>chat/[goalId]</Text>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Text style={styles.backIcon}>←</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>{currentGoal.title}</Text>
+            <Text style={styles.headerSubtitle}>Powered by AI</Text>
           </View>
           
-          <View style={styles.goalInfo}>
-            <View style={styles.avatarContainer}>
-              <AvatarRenderer 
-                type={avatar.type} 
-                vitality={avatar.vitality} 
-                size={40} 
-                animated 
-              />
-            </View>
-            <View style={styles.goalDetails}>
-              <Text style={styles.goalTitle}>
-                {(currentGoal as any).avatar?.name || 'Your Companion'}
-              </Text>
-              <Text style={styles.goalSubtitle}>
-                Helping with {currentGoal.title}
-              </Text>
-              <Text style={styles.vitalityText}>{avatar.vitality}% vitality</Text>
-            </View>
-          </View>
+          <TouchableOpacity style={styles.menuButton}>
+            <Text style={styles.menuIcon}>⋯</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Messages */}
@@ -335,43 +333,93 @@ export default function GoalChatScreen() {
           ref={scrollViewRef}
           style={styles.messagesContainer}
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={messages.length === 0 ? styles.emptyMessagesContainer : undefined}
         >
-          {messages.map((message) => (
-            <View 
-              key={message.id} 
-              style={[
-                styles.messageContainer, 
-                message.isUser ? styles.userMessageContainer : styles.goalMessageContainer
-              ]}
-            >
-              <View style={[
-                styles.messageBubble,
-                message.isUser ? styles.userBubble : styles.goalBubble
-              ]}>
-                <Text style={[
-                  styles.messageText,
-                  message.isUser ? styles.userMessageText : styles.goalMessageText
-                ]}>
-                  {message.content}
-                </Text>
-                <Text style={styles.timestamp}>
-                  {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </Text>
+          {messages.length === 0 && !isTyping ? (
+            /* Empty State Illustration */
+            <View style={styles.emptyStateContainer}>
+              <View style={styles.avatarIllustration}>
+                {/* Central Avatar */}
+                <View style={styles.centralAvatar}>
+                  <AvatarRenderer 
+                    type={avatar.type} 
+                    vitality={avatar.vitality} 
+                    size={120} 
+                    animated 
+                  />
+                </View>
+                
+                {/* Floating Icons */}
+                <View style={[styles.floatingIcon, styles.floatingIcon1]}>
+                  <Text style={styles.floatingEmoji}>📚</Text>
+                </View>
+                <View style={[styles.floatingIcon, styles.floatingIcon2]}>
+                  <Text style={styles.floatingEmoji}>🎯</Text>
+                </View>
+                <View style={[styles.floatingIcon, styles.floatingIcon3]}>
+                  <Text style={styles.floatingEmoji}>⭐</Text>
+                </View>
+                <View style={[styles.floatingIcon, styles.floatingIcon4]}>
+                  <Text style={styles.floatingEmoji}>💪</Text>
+                </View>
+                <View style={[styles.floatingIcon, styles.floatingIcon5]}>
+                  <Text style={styles.floatingEmoji}>🌱</Text>
+                </View>
+                <View style={[styles.floatingIcon, styles.floatingIcon6]}>
+                  <Text style={styles.floatingEmoji}>✨</Text>
+                </View>
               </View>
+              
+              <Text style={styles.emptyStateTitle}>
+                Talk to {(currentGoal as any).avatar?.name || 'Your Companion'}
+              </Text>
+              
+              <Text style={styles.emptyStateSubtitle}>
+                Chat messages are cleared each time you{'\n'}
+                leave this view to ensure your privacy.
+              </Text>
             </View>
-          ))}
-          
-          {/* Typing Indicator */}
-          {isTyping && (
-            <View style={styles.goalMessageContainer}>
-              <View style={[styles.messageBubble, styles.goalBubble]}>
-                <Animated.View style={[styles.typingDots, { opacity: typingAnimation }]}>
-                  <View style={styles.typingDot} />
-                  <View style={styles.typingDot} />
-                  <View style={styles.typingDot} />
-                </Animated.View>
-              </View>
-            </View>
+          ) : (
+            /* Regular Messages */
+            <>
+              {messages.map((message) => (
+                <View 
+                  key={message.id} 
+                  style={[
+                    styles.messageContainer, 
+                    message.isUser ? styles.userMessageContainer : styles.goalMessageContainer
+                  ]}
+                >
+                  <View style={[
+                    styles.messageBubble,
+                    message.isUser ? styles.userBubble : styles.goalBubble
+                  ]}>
+                    <Text style={[
+                      styles.messageText,
+                      message.isUser ? styles.userMessageText : styles.goalMessageText
+                    ]}>
+                      {message.content}
+                    </Text>
+                    <Text style={styles.timestamp}>
+                      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+              
+              {/* Typing Indicator */}
+              {isTyping && (
+                <View style={styles.goalMessageContainer}>
+                  <View style={[styles.messageBubble, styles.goalBubble]}>
+                    <Animated.View style={[styles.typingDots, { opacity: typingAnimation }]}>
+                      <View style={styles.typingDot} />
+                      <View style={styles.typingDot} />
+                      <View style={styles.typingDot} />
+                    </Animated.View>
+                  </View>
+                </View>
+              )}
+            </>
           )}
         </ScrollView>
 
@@ -400,7 +448,7 @@ export default function GoalChatScreen() {
               style={styles.textInput}
               value={inputText}
               onChangeText={setInputText}
-              placeholder="Type your message..."
+              placeholder="Say something"
               placeholderTextColor={theme.colors.text.muted}
               multiline
               maxLength={500}
@@ -413,7 +461,7 @@ export default function GoalChatScreen() {
               onPress={handleSendMessage}
               disabled={!inputText.trim() || isTyping}
             >
-              <Text style={styles.sendButtonText}>Send</Text>
+              <Text style={styles.sendButtonIcon}>↑</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -431,73 +479,132 @@ const createStyles = (theme: any) => StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.sm,
-    paddingBottom: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.line,
-    backgroundColor: theme.colors.background.secondary,
-    shadowColor: theme.colors.text.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
+    paddingBottom: theme.spacing.md,
+    backgroundColor: theme.colors.background.primary,
   },
   backButton: {
-    flexDirection: 'row',
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  backText: {
-    fontSize: 16,
-    color: theme.colors.primary,
-    fontWeight: '500',
+  backIcon: {
+    fontSize: 24,
+    color: theme.colors.text.primary,
+    fontWeight: '300',
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-  },
-  goalInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarContainer: {
-    marginRight: theme.spacing.md,
-  },
-  goalDetails: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  goalTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     color: theme.colors.text.primary,
-    marginBottom: 2,
-    lineHeight: 20,
+    textAlign: 'center',
   },
-  goalSubtitle: {
-    fontSize: 12,
+  headerSubtitle: {
+    fontSize: 13,
     color: theme.colors.text.secondary,
-    marginBottom: 2,
-    lineHeight: 16,
+    textAlign: 'center',
+    marginTop: 2,
   },
-  vitalityText: {
-    fontSize: 11,
-    color: theme.colors.primary,
-    fontWeight: '600',
-    lineHeight: 14,
+  menuButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuIcon: {
+    fontSize: 24,
+    color: theme.colors.text.primary,
+    fontWeight: '300',
   },
   messagesContainer: {
     flex: 1,
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.md,
     paddingBottom: 0,
+  },
+  emptyMessagesContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyStateContainer: {
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.xl,
+  },
+  avatarIllustration: {
+    width: 280,
+    height: 280,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: theme.spacing.xl,
+    position: 'relative',
+  },
+  centralAvatar: {
+    zIndex: 10,
+  },
+  floatingIcon: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.background.secondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: theme.colors.text.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  floatingIcon1: {
+    top: 40,
+    left: 60,
+  },
+  floatingIcon2: {
+    top: 20,
+    right: 50,
+  },
+  floatingIcon3: {
+    top: 100,
+    left: 20,
+  },
+  floatingIcon4: {
+    top: 160,
+    right: 30,
+  },
+  floatingIcon5: {
+    bottom: 60,
+    left: 40,
+  },
+  floatingIcon6: {
+    bottom: 40,
+    right: 70,
+  },
+  floatingEmoji: {
+    fontSize: 20,
+  },
+  emptyStateTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    textAlign: 'center',
+    marginBottom: theme.spacing.md,
+  },
+  emptyStateSubtitle: {
+    fontSize: 16,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    opacity: 0.8,
   },
   messageContainer: {
     marginBottom: theme.spacing.md,
@@ -596,25 +703,25 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.text.primary,
     backgroundColor: theme.colors.background.secondary,
     maxHeight: 100,
-    marginRight: theme.spacing.sm,
+    minHeight: 36,
   },
   sendButton: {
     backgroundColor: theme.colors.primary,
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 60,
+    marginLeft: theme.spacing.sm,
   },
   sendButtonDisabled: {
     backgroundColor: theme.colors.text.muted,
     opacity: 0.5,
   },
-  sendButtonText: {
+  sendButtonIcon: {
     color: 'white',
     fontWeight: '600',
-    fontSize: 14,
+    fontSize: 18,
   },
   errorContainer: {
     flex: 1,
