@@ -7,8 +7,8 @@ import { MotivationalToast } from '@/components/MotivationalToast';
 import { FloatingActionButton } from '@/components/FloatingActionButton';
 import { HabitCreationModal } from '@/components/HabitCreationModal';
 import { HabitManagementScreen } from '@/components/HabitManagementScreen';
+import { FeaturedGoalCarousel } from '@/components/FeaturedGoalCarousel';
 
-import { AvatarRenderer } from '@/components/avatars';
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/hooks/useToast';
 import { useAppStore } from '@/stores/app';
@@ -286,7 +286,7 @@ export default function HomeScreen() {
   const handleHabitHoldStart = (habitId: string) => {
     if (isCompleting || celebrationModal || sheet) return;
     setHoldingHabit(habitId);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
     // Start progress animation
     Animated.timing(progressRef, {
@@ -303,11 +303,11 @@ export default function HomeScreen() {
     // Haptic feedback during hold
     const hapticInterval = setInterval(() => {
       if (holdTimerRef.current) {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        Haptics.selectionAsync();
       } else {
         clearInterval(hapticInterval);
       }
-    }, 500);
+    }, 750);
   };
 
   const handleHabitHoldEnd = () => {
@@ -444,15 +444,13 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Clean Avatar-Centric Header */}
+        {/* Header */}
         <View style={styles.header}>
-          <View style={styles.avatarContainer}>
-            <AvatarRenderer type={avatar.type} vitality={avatar.vitality} size={60} animated />
-            <View style={styles.avatarInfo}>
-              <Text style={styles.avatarName}>Your Companion</Text>
-              <Text style={styles.avatarVitalityText}>{avatar.vitality}% Vitality</Text>
-            </View>
-            <Text style={styles.avatarMessage}>{getContextualGreeting()}</Text>
+          <View style={styles.greetingContainer}>
+            <Text style={styles.greetingTitle}>Hey Zak</Text>
+            <Text style={styles.greetingSubtitle}>
+              {getContextualGreeting()}
+            </Text>
           </View>
 
           <View style={styles.quickActions}>
@@ -466,24 +464,85 @@ export default function HomeScreen() {
           </View>
         </View>
         
-        {/* Daily Focus Section */}
-        {primaryGoal && (
-          <View style={styles.dailyFocusContainer}>
-            <View style={styles.dailyFocusCard}>
-              <Text style={styles.dailyFocusTitle}>Today&apos;s Focus</Text>
-              <Text style={styles.dailyFocusGoal}>{primaryGoal.title}</Text>
-              <Text style={styles.dailyFocusCount}>
-                {completedTodayCount} of {primaryGoalHabits.length} habits completed
-              </Text>
-            </View>
-          </View>
+        {/* Goal Carousel Section */}
+        {isHydrated && (goalsWithIds.length > 0 || primaryGoal) && (
+          <FeaturedGoalCarousel
+            goals={goalsWithIds.length > 0 ? 
+              [...goalsWithIds, ...secondaryGoals].reduce((uniqueGoals, goal) => {
+                if (!uniqueGoals.find(g => g.id === goal.id)) {
+                  uniqueGoals.push({
+                    id: goal.id,
+                    title: goal.title,
+                    completedHabits: goal.id === primaryGoal?.id ? completedTodayCount : ('completedToday' in goal ? goal.completedToday : 0),
+                    totalHabits: goal.id === primaryGoal?.id ? primaryGoalHabits.length : ('habitCount' in goal ? goal.habitCount : (habitsWithIds[goal.id] || []).length),
+                    avatar: {
+                      type: avatar.type,
+                      name: avatar.name,
+                      vitality: avatar.vitality,
+                    },
+                  });
+                }
+                return uniqueGoals;
+              }, [] as any[])
+              : primaryGoal ? [{
+                id: primaryGoal.id,
+                title: primaryGoal.title,
+                completedHabits: completedTodayCount,
+                totalHabits: primaryGoalHabits.length,
+                avatar: {
+                  type: avatar.type,
+                  name: avatar.name,
+                  vitality: avatar.vitality,
+                },
+              }] : []
+            }
+            primaryGoalId={primaryGoal?.id || null}
+            onGoalPress={(goalId) => {
+              setPrimaryGoal(goalId);
+              // Refresh the primary goal state
+              const newPrimaryGoal = goalsWithIds.find(g => g.id === goalId);
+              if (newPrimaryGoal) {
+                setPrimaryGoalState(newPrimaryGoal);
+              }
+            }}
+          />
         )}
 
 
 
         {/* Daily Habits - Simplified */}
         <View style={styles.habitsSection}>
-          <Text style={styles.habitsTitle}>Today&apos;s Habits</Text>
+          <View style={styles.habitsSectionHeader}>
+            <Text style={styles.habitsTitle}>Today&apos;s Habits</Text>
+            <View style={styles.dailyProgressContainer}>
+              <Text style={styles.progressText}>
+                {completedTodayCount} of {primaryGoalHabits.length} completed
+              </Text>
+              <View style={styles.progressBar}>
+                <Animated.View 
+                  style={[
+                    styles.progressFill, 
+                    { 
+                      width: `${primaryGoalHabits.length > 0 ? (completedTodayCount / primaryGoalHabits.length) * 100 : 0}%`,
+                      backgroundColor: completedTodayCount === primaryGoalHabits.length && primaryGoalHabits.length > 0 
+                        ? theme.colors.status.success 
+                        : theme.colors.primary
+                    }
+                  ]} 
+                />
+              </View>
+            </View>
+          </View>
+          
+          {/* Next Action Hint */}
+          {recommendedHabit && !recommendedHabit.completed && (
+            <View style={styles.nextActionHint}>
+              <Text style={styles.nextActionText}>
+                💫 Up next: <Text style={styles.nextActionHabit}>{recommendedHabit.name}</Text>
+              </Text>
+            </View>
+          )}
+          
           <View style={styles.habitsList}>
             {primaryGoalHabits.map((habit) => (
               <TouchableOpacity
@@ -493,9 +552,14 @@ export default function HomeScreen() {
                   habit.completed && styles.habitCardCompleted,
                   recommendedHabit?.id === habit.id && !habit.completed && styles.habitCardRecommended
                 ]}
-                onPressIn={() => !habit.completed && handleHabitHoldStart(habit.id)}
+                onPressIn={() => {
+                  if (!habit.completed) {
+                    handleHabitHoldStart(habit.id);
+                    Haptics.selectionAsync();
+                  }
+                }}
                 onPressOut={handleHabitHoldEnd}
-                activeOpacity={habit.completed ? 0.7 : 0.8}
+                activeOpacity={habit.completed ? 0.8 : 0.9}
                 disabled={habit.completed}
               >
                 <View style={styles.habitContent}>
@@ -694,13 +758,31 @@ const createStyles = (theme: any) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingTop: theme.spacing.lg,
-    paddingBottom: theme.spacing.xl,
+    paddingTop: theme.spacing.xl,
+    paddingBottom: theme.spacing.xxl || theme.spacing.xl * 1.5,
+    marginBottom: theme.spacing.lg,
   },
   avatarContainer: {
     flex: 1,
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
+  },
+  greetingContainer: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  greetingTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.xs,
+  },
+  greetingSubtitle: {
+    fontSize: 16,
+    color: theme.colors.text.secondary,
+    lineHeight: 22,
+    marginTop: theme.spacing.xs,
+    maxWidth: '90%',
   },
   avatarInfo: {
     alignItems: 'center',
@@ -755,38 +837,6 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.text.secondary,
   },
   // Primary Goal Card Styles
-  dailyFocusContainer: {
-    marginBottom: theme.spacing.lg,
-  },
-  dailyFocusCard: {
-    backgroundColor: theme.colors.background.secondary,
-    borderRadius: 16,
-    padding: theme.spacing.lg,
-    shadowColor: theme.colors.text.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-    alignItems: 'center',
-  },
-  dailyFocusTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginBottom: theme.spacing.sm,
-  },
-  dailyFocusGoal: {
-    fontSize: 16,
-    color: theme.colors.text.secondary,
-    textAlign: 'center',
-    marginBottom: theme.spacing.sm,
-    lineHeight: 22,
-  },
-  dailyFocusCount: {
-    fontSize: 14,
-    color: theme.colors.primary,
-    fontWeight: '600',
-  },
   primaryGoalCard: {
     backgroundColor: theme.colors.background.secondary,
     borderRadius: 20,
@@ -921,12 +971,50 @@ const createStyles = (theme: any) => StyleSheet.create({
   habitsSection: {
     marginBottom: theme.spacing.xl,
   },
+  habitsSectionHeader: {
+    marginBottom: theme.spacing.lg,
+  },
   habitsTitle: {
     fontSize: 22,
     fontWeight: '700',
     color: theme.colors.text.primary,
-    marginBottom: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
     letterSpacing: -0.5,
+  },
+  dailyProgressContainer: {
+    marginBottom: theme.spacing.sm,
+  },
+  progressText: {
+    fontSize: 14,
+    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.xs,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: theme.colors.background.tertiary,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  nextActionHint: {
+    backgroundColor: theme.colors.primary + '10',
+    borderRadius: 12,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+    borderLeftWidth: 3,
+    borderLeftColor: theme.colors.primary,
+  },
+  nextActionText: {
+    fontSize: 14,
+    color: theme.colors.text.secondary,
+    fontWeight: '500',
+  },
+  nextActionHabit: {
+    color: theme.colors.primary,
+    fontWeight: '700',
   },
   habitCard: {
     backgroundColor: theme.colors.background.secondary,
@@ -945,18 +1033,21 @@ const createStyles = (theme: any) => StyleSheet.create({
     marginBottom: theme.spacing.md,
   },
   habitCardCompleted: {
-    opacity: 0.7,
-    backgroundColor: theme.colors.background.tertiary,
+    opacity: 0.8,
+    backgroundColor: theme.colors.status.success + '15',
+    borderWidth: 1,
+    borderColor: theme.colors.status.success + '30',
   },
   habitCardRecommended: {
     borderWidth: 2,
-    borderColor: '#10b981',
-    backgroundColor: theme.colors.background.secondary,
-    shadowColor: '#10b981',
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.primary + '10',
+    shadowColor: theme.colors.primary,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 5,
+    transform: [{ scale: 1.02 }],
   },
   habitContent: {
     flex: 1,
@@ -1019,8 +1110,8 @@ const createStyles = (theme: any) => StyleSheet.create({
     backgroundColor: 'white',
   },
   completedText: {
-    color: theme.colors.text.muted,
-    textDecorationLine: 'line-through',
+    color: theme.colors.status.success,
+    opacity: 0.8,
   },
   completedButton: {
     backgroundColor: theme.colors.success || '#22c55e',

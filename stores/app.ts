@@ -23,6 +23,16 @@ export type Suggestion = { action: string; goal: string; reason: string };
 export type HabitWithId = { id: string; title: string; goalId?: string | null };
 export type HabitStreak = { current: number; longest: number };
 
+export type ConversationMessage = {
+  id: string;
+  content: string;
+  isUser: boolean;
+  timestamp: number;
+  goalId: string;
+  emotion?: 'supportive' | 'celebratory' | 'motivational' | 'wise';
+  vitalityImpact?: number;
+};
+
 type Privacy = { localOnly: boolean; voice: boolean };
 
 type GoalMeta = {
@@ -46,6 +56,7 @@ type AppState = {
   nextAction: Suggestion | null;
   primaryGoalId: string | null;
   goalMeta: Record<string, GoalMeta>; // goalId -> meta
+  conversations: Record<string, ConversationMessage[]>; // goalId -> messages
   
   // Avatar system
   avatar: {
@@ -91,6 +102,11 @@ type AppState = {
   selectSmartPrimaryGoal: () => Promise<string | null>;
   getTodaysPendingHabits: (goalId: string) => Promise<number>;
   getMostRecentlyActiveGoal: () => Promise<string | null>;
+  
+  // Conversation actions
+  getGoalConversation: (goalId: string) => ConversationMessage[];
+  addConversationMessage: (message: ConversationMessage) => void;
+  clearGoalConversation: (goalId: string) => void;
 };
 
 function generateId(): string {
@@ -112,6 +128,7 @@ export const useAppStore = create<AppState>()(
     nextAction: null,
     primaryGoalId: null,
     goalMeta: {},
+    conversations: {},
     avatar: {
       type: 'plant',
       name: 'Sage',
@@ -604,6 +621,28 @@ export const useAppStore = create<AppState>()(
       
       return mostRecentGoalId;
     },
+
+    // Conversation actions
+    getGoalConversation: (goalId) => {
+      const state = get();
+      return state.conversations[goalId] || [];
+    },
+
+    addConversationMessage: (message) => set((s) => {
+      if (!s.conversations[message.goalId]) {
+        s.conversations[message.goalId] = [];
+      }
+      s.conversations[message.goalId].push(message);
+      
+      // Limit conversation history to last 50 messages per goal
+      if (s.conversations[message.goalId].length > 50) {
+        s.conversations[message.goalId] = s.conversations[message.goalId].slice(-50);
+      }
+    }),
+
+    clearGoalConversation: (goalId) => set((s) => {
+      delete s.conversations[goalId];
+    }),
   }))
 );
 

@@ -8,6 +8,7 @@ import {
   ScrollView,
   Modal
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { tokens } from '@/lib/theme';
 import { PlantAvatar } from '@/components/avatars/PlantAvatar';
 
@@ -45,9 +46,16 @@ const categoryColors = {
 };
 
 export default function GoalDetailModal({ goal, visible, onClose }: Props) {
+  const router = useRouter();
+  
   if (!goal) return null;
 
   const categoryColor = categoryColors[goal.category];
+  
+  const handleChatWithGoal = () => {
+    onClose(); // Close the modal first
+    router.push(`/chat/${goal.id}`);
+  };
 
   return (
     <Modal
@@ -216,8 +224,11 @@ export default function GoalDetailModal({ goal, visible, onClose }: Props) {
 
           {/* Action Buttons - Enhanced */}
           <View style={styles.actions}>
-            <TouchableOpacity style={[styles.actionButton, styles.primaryAction]}>
-              <Text style={styles.primaryActionText}>💬 Talk to Alex</Text>
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.primaryAction]}
+              onPress={handleChatWithGoal}
+            >
+              <Text style={styles.primaryActionText}>💬 Chat with Alex</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.actionButton, styles.secondaryAction]}>
               <Text style={styles.secondaryActionText}>✏️ Edit Goal</Text>

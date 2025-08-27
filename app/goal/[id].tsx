@@ -14,7 +14,7 @@ import Animated, {
   withSpring,
   withDelay,
 } from 'react-native-reanimated';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useTheme';
 import { AvatarRenderer } from '@/components/avatars';
 
@@ -104,6 +104,7 @@ const categoryEmojis = {
 
 export default function GoalDetailPage() {
   const { theme } = useTheme();
+  const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   
   const styles = createStyles(theme);
@@ -180,12 +181,8 @@ export default function GoalDetailPage() {
 
   // Action handlers with feedback
   const handleChatWithAvatar = () => {
-    // For now, show a coming soon alert since routes don't exist yet
-    Alert.alert(
-      `💬 Chat with ${goal.avatar.name}`,
-      "Coming soon! You'll be able to have conversations with your avatar companion about your progress and goals.",
-      [{ text: "Got it!", style: "default" }]
-    );
+    if (!goal) return;
+    router.push(`/chat/${goal.id}`);
   };
 
   const handleEditGoal = () => {
