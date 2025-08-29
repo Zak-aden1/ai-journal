@@ -206,6 +206,27 @@ export async function updateHabitGoalAssignment(habitId: string, goalId: string 
   await runAsync(database, 'UPDATE habits SET goalId = ? WHERE id = ?', [goalId, habitId]);
 }
 
+export async function deleteGoal(goalId: string): Promise<void> {
+  const database = await getDbAsync();
+  
+  // Get all habits for this goal first
+  const habits = await getAllAsync<{ id: string }>(database, 'SELECT id FROM habits WHERE goalId = ?', [goalId]);
+  
+  // Delete all habit completions for habits linked to this goal
+  for (const habit of habits) {
+    await runAsync(database, 'DELETE FROM habit_completions WHERE habitId = ?', [habit.id]);
+  }
+  
+  // Delete all habits linked to this goal
+  await runAsync(database, 'DELETE FROM habits WHERE goalId = ?', [goalId]);
+  
+  // Delete goal metadata
+  await runAsync(database, 'DELETE FROM goal_meta WHERE goalId = ?', [goalId]);
+  
+  // Delete the goal itself
+  await runAsync(database, 'DELETE FROM goals WHERE id = ?', [goalId]);
+}
+
 export async function deleteHabit(habitId: string): Promise<void> {
   const database = await getDbAsync();
   // Also delete all completions for this habit

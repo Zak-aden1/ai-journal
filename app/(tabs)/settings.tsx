@@ -12,6 +12,7 @@ import {
 import { useTheme } from '@/hooks/useTheme';
 import { useAppStore } from '@/stores/app';
 import { track } from '@/utils/analytics';
+import { GoalCleanup } from '@/components/GoalCleanup';
 
 interface SettingItem {
   id: string;
@@ -225,6 +226,15 @@ export default function SettingsScreen() {
         {renderSection('Privacy & Security', privacySettings)}
         {renderSection('App Preferences', appSettings)}
         {renderSection('Data Management', dataSettings)}
+        
+        {/* Goal cleanup section - only visible for development */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Development Tools</Text>
+          <View style={styles.sectionContent}>
+            <GoalCleanup />
+          </View>
+        </View>
+        
         {renderSection('Support', supportSettings)}
 
         <View style={styles.footer}>

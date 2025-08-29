@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -16,84 +16,42 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useTheme';
+import { useAppStore } from '@/stores/app';
 import { AvatarRenderer } from '@/components/avatars';
+import { isHabitCompletedOnDate } from '@/lib/db';
 
 interface Goal {
   id: string;
   title: string;
-  description: string;
-  targetDate: string;
+  description?: string;
   progress: number;
-  habits: string[];
-  why: string;
-  obstacles: string[];
+  totalHabits: number;
+  completedHabits: number;
+  habits: Array<{
+    id: string;
+    title: string;
+    completed: boolean;
+    streak: number;
+  }>;
+  why?: string;
+  obstacles?: string[];
   category: 'health' | 'learning' | 'career' | 'personal';
   isActive: boolean;
-  avatar: {
-    type: 'plant' | 'pet' | 'robot' | 'base';
-    personality: string;
-    name: string;
-  };
-  vitality: number;
 }
 
-// Dummy goals data - In real app, this would come from the store
-const dummyGoals: Goal[] = [
-  {
-    id: '1',
-    title: 'Read 12 books this year',
-    description: 'Expand my knowledge and improve focus through regular reading',
-    targetDate: 'December 2024',
-    progress: 75,
-    habits: ['Read 30 minutes daily', 'Take reading notes'],
-    why: 'I want to become more knowledgeable and improve my ability to focus deeply on complex topics.',
-    obstacles: ['Limited time', 'Digital distractions', 'Finding good books'],
-    category: 'learning',
-    isActive: true,
-    avatar: {
-      type: 'plant',
-      personality: 'wise and growing',
-      name: 'Sage'
-    },
-    vitality: 85
-  },
-  {
-    id: '2',
-    title: 'Run a 5K race',
-    description: 'Build cardiovascular fitness and complete my first 5K',
-    targetDate: 'March 2024',
-    progress: 60,
-    habits: ['Morning jog 3x/week', 'Strength training'],
-    why: 'I want to improve my health and prove to myself that I can achieve athletic goals.',
-    obstacles: ['Weather conditions', 'Motivation', 'Knee pain'],
-    category: 'health',
-    isActive: true,
-    avatar: {
-      type: 'pet',
-      personality: 'energetic and loyal',
-      name: 'Runner'
-    },
-    vitality: 72
-  },
-  {
-    id: '3',
-    title: 'Learn Spanish conversationally',
-    description: 'Achieve conversational fluency for travel and career',
-    targetDate: 'June 2024',
-    progress: 45,
-    habits: ['Daily Duolingo', 'Spanish podcast', 'Practice with native speakers'],
-    why: 'I want to connect with Spanish-speaking communities and advance my career opportunities.',
-    obstacles: ['Grammar complexity', 'Speaking confidence', 'Finding practice partners'],
-    category: 'learning',
-    isActive: true,
-    avatar: {
-      type: 'robot',
-      personality: 'analytical and persistent',
-      name: 'Linguabot'
-    },
-    vitality: 45
-  }
-];
+// Helper functions
+function calculateGoalProgress(completedHabits: number, totalHabits: number): number {
+  if (totalHabits === 0) return 0;
+  return Math.round((completedHabits / totalHabits) * 100);
+}
+
+function categorizeGoal(title: string): 'health' | 'learning' | 'career' | 'personal' {
+  const lower = title.toLowerCase();
+  if (/(fitness|health|run|exercise|workout|diet|sleep)/i.test(lower)) return 'health';
+  if (/(learn|study|read|course|language|skill)/i.test(lower)) return 'learning';
+  if (/(career|job|work|business|promotion)/i.test(lower)) return 'career';
+  return 'personal';
+}
 
 const categoryEmojis = {
   health: '💪',
@@ -107,6 +65,18 @@ export default function GoalDetailPage() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   
+  // Get data from store
+  const { 
+    goalsWithIds, 
+    habitsWithIds, 
+    goalMeta,
+    avatar,
+    isHydrated,
+    getHabitStreak 
+  } = useAppStore();
+
+  const [goal, setGoal] = useState<Goal | null>(null);
+  const [loading, setLoading] = useState(true);
   const styles = createStyles(theme);
   
   // Animation values
@@ -114,12 +84,84 @@ export default function GoalDetailPage() {
   const avatarScale = useSharedValue(0.8);
   const vitalityOpacity = useSharedValue(0);
   
-  // Find the goal by ID (in real app, this would come from store)
-  const goal = dummyGoals.find(g => g.id === id);
+  // Load goal data from store
+  useEffect(() => {
+    if (!isHydrated || !id) return;
+
+    const loadGoalData = async () => {
+      setLoading(true);
+      try {
+        // Find the goal in store
+        const storeGoal = goalsWithIds.find(g => g.id === id);
+        if (!storeGoal) {
+          setGoal(null);
+          setLoading(false);
+          return;
+        }
+
+        // Get goal's habits
+        const goalHabits = habitsWithIds[id] || [];
+        
+        // Process habits with completion status
+        let completedToday = 0;
+        const processedHabits = await Promise.all(
+          goalHabits.map(async (habit) => {
+            try {
+              const streak = await getHabitStreak(habit.id);
+              const completed = await isHabitCompletedOnDate(habit.id);
+              if (completed) completedToday++;
+              
+              return {
+                id: habit.id,
+                title: habit.title,
+                completed,
+                streak: streak.current,
+              };
+            } catch (error) {
+              console.warn(`Error processing habit ${habit.id}:`, error);
+              return {
+                id: habit.id,
+                title: habit.title,
+                completed: false,
+                streak: 0,
+              };
+            }
+          })
+        );
+
+        // Get goal metadata
+        const meta = goalMeta[id] || {};
+        
+        // Build complete goal object
+        const completeGoal: Goal = {
+          id: storeGoal.id,
+          title: storeGoal.title,
+          description: meta.why_text,
+          progress: calculateGoalProgress(completedToday, goalHabits.length),
+          totalHabits: goalHabits.length,
+          completedHabits: completedToday,
+          habits: processedHabits,
+          why: meta.why_text,
+          obstacles: meta.obstacles || [],
+          category: categorizeGoal(storeGoal.title),
+          isActive: true,
+        };
+
+        setGoal(completeGoal);
+      } catch (error) {
+        console.error('Error loading goal data:', error);
+        setGoal(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadGoalData();
+  }, [id, isHydrated, goalsWithIds, habitsWithIds, goalMeta, getHabitStreak]);
 
   // Animation effects - must be called before any conditional returns
   useEffect(() => {
-    if (!goal) return;
+    if (!goal || loading) return;
     
     // Animate avatar entrance
     avatarScale.value = withSpring(1, { damping: 15 });
@@ -129,7 +171,7 @@ export default function GoalDetailPage() {
     
     // Animate progress bar
     progressWidth.value = withDelay(400, withTiming(goal.progress, { duration: 1000 }));
-  }, [goal?.progress, goal?.vitality, avatarScale, vitalityOpacity, progressWidth, goal]);
+  }, [goal?.progress, avatarScale, vitalityOpacity, progressWidth, goal, loading]);
 
   // Animated styles - must be called before any conditional returns
   const animatedAvatarStyle = useAnimatedStyle(() => ({
@@ -143,14 +185,38 @@ export default function GoalDetailPage() {
   const animatedProgressStyle = useAnimatedStyle(() => ({
     width: `${progressWidth.value}%`,
   }));
+
+  // Loading state
+  if (loading) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Loading...' }} />
+        <View style={styles.container}>
+          <View style={styles.loadingContainer}>
+            <Text style={styles.loadingText}>Loading goal details...</Text>
+          </View>
+        </View>
+      </>
+    );
+  }
   
+  // Goal not found state
   if (!goal) {
     return (
       <>
         <Stack.Screen options={{ title: 'Goal Not Found' }} />
         <View style={styles.container}>
           <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>Goal not found</Text>
+            <Text style={styles.errorTitle}>Goal Not Found</Text>
+            <Text style={styles.errorText}>
+              This goal might have been deleted or the link is incorrect.
+            </Text>
+            <TouchableOpacity 
+              style={styles.errorButton}
+              onPress={() => router.push('/(tabs)/goals')}
+            >
+              <Text style={styles.errorButtonText}>View All Goals</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </>
@@ -167,7 +233,7 @@ export default function GoalDetailPage() {
   const categoryColor = categoryColors[goal.category];
 
   const renderAvatar = () => (
-    <AvatarRenderer type={goal.avatar.type as any} vitality={goal.vitality} size={120} animated />
+    <AvatarRenderer type={avatar.type} vitality={avatar.vitality} size={120} animated />
   );
 
   const getVitalityLevel = (vitality: number) => {
@@ -177,7 +243,7 @@ export default function GoalDetailPage() {
     return { label: 'Starting', color: '#EF4444', emoji: '🌱' };
   };
 
-  const vitalityInfo = getVitalityLevel(goal.vitality);
+  const vitalityInfo = getVitalityLevel(avatar.vitality);
 
   // Action handlers with feedback
   const handleChatWithAvatar = () => {
@@ -204,7 +270,7 @@ export default function GoalDetailPage() {
   const handleProgressTap = () => {
     Alert.alert(
       "📊 Progress Details",
-      `You're ${goal.progress}% complete with your goal "${goal.title}"!\n\nTarget: ${goal.targetDate}\nVitality: ${goal.vitality}%`,
+      `You're ${goal.progress}% complete with your goal "${goal.title}"!\n\nCompleted: ${goal.completedHabits}/${goal.totalHabits} habits today\nAvatar Vitality: ${avatar.vitality}%`,
       [{ text: "Keep going!", style: "default" }]
     );
   };
@@ -236,13 +302,13 @@ export default function GoalDetailPage() {
             </Animated.View>
           </TouchableOpacity>
           <View style={styles.avatarInfo}>
-            <Text style={styles.avatarName}>{goal.avatar.name}</Text>
-            <Text style={styles.avatarPersonality}>{goal.avatar.personality}</Text>
+            <Text style={styles.avatarName}>{avatar.name}</Text>
+            <Text style={styles.avatarPersonality}>Your {avatar.type} companion</Text>
             <Animated.View style={[styles.vitalityContainer, animatedVitalityStyle]}>
               <TouchableOpacity
                 onPress={() => Alert.alert(
                   `${vitalityInfo.emoji} ${vitalityInfo.label}`,
-                  `Your avatar's vitality is at ${goal.vitality}%. This reflects your progress and engagement with the goal. Keep up the great work!`,
+                  `Your avatar's vitality is at ${avatar.vitality}%. This reflects your progress and engagement with the goal. Keep up the great work!`,
                   [{ text: "Thanks!", style: "default" }]
                 )}
                 activeOpacity={0.7}
@@ -253,7 +319,7 @@ export default function GoalDetailPage() {
                     {vitalityInfo.label}
                   </Text>
                   <Text style={[styles.vitalityPercent, { color: vitalityInfo.color }]}>
-                    {goal.vitality}%
+                    {avatar.vitality}%
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -263,7 +329,9 @@ export default function GoalDetailPage() {
 
         {/* Goal Description */}
         <View style={styles.descriptionSection}>
-          <Text style={styles.goalDescription}>{goal.description}</Text>
+          <Text style={styles.goalDescription}>
+            {goal.description || `Working towards ${goal.title} with ${goal.totalHabits} supporting habits.`}
+          </Text>
           <View style={styles.categoryContainer}>
             <View style={[styles.categoryBadge, { backgroundColor: `${categoryColor}20` }]}>
               <Text style={styles.categoryEmoji}>{categoryEmojis[goal.category]}</Text>
@@ -275,17 +343,19 @@ export default function GoalDetailPage() {
         </View>
         
         {/* My Why Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionIcon}>
-              <Text style={styles.sectionEmoji}>❤️</Text>
+        {goal.why && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionIcon}>
+                <Text style={styles.sectionEmoji}>❤️</Text>
+              </View>
+              <Text style={styles.sectionTitle}>My Why</Text>
             </View>
-            <Text style={styles.sectionTitle}>My Why</Text>
+            <View style={[styles.card, styles.whyCard]}>
+              <Text style={styles.whyText}>{goal.why}</Text>
+            </View>
           </View>
-          <View style={[styles.card, styles.whyCard]}>
-            <Text style={styles.whyText}>{goal.why}</Text>
-          </View>
-        </View>
+        )}
 
         {/* Avatar Companion Section */}
         <View style={styles.section}>
@@ -296,9 +366,9 @@ export default function GoalDetailPage() {
             <Text style={styles.sectionTitle}>Avatar Companion</Text>
           </View>
           <View style={[styles.card, styles.companionCard]}>
-            <Text style={styles.companionName}>{goal.avatar.name}</Text>
-            <Text style={styles.companionType}>{goal.avatar.type.charAt(0).toUpperCase() + goal.avatar.type.slice(1)} Avatar</Text>
-            <Text style={styles.companionPersonality}>&quot;{goal.avatar.personality}&quot;</Text>
+            <Text style={styles.companionName}>{avatar.name}</Text>
+            <Text style={styles.companionType}>{avatar.type.charAt(0).toUpperCase() + avatar.type.slice(1)} Avatar</Text>
+            <Text style={styles.companionPersonality}>&quot;Your {avatar.type} companion&quot;</Text>
             <Text style={styles.companionSpecialty}>Specializes in {goal.category} goals</Text>
             <View style={styles.companionBadge}>
               <Text style={styles.companionBadgeText}>Growing Together 🌱</Text>
@@ -326,8 +396,8 @@ export default function GoalDetailPage() {
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>{goal.targetDate}</Text>
-                <Text style={styles.statLabel}>Target Date</Text>
+                <Text style={styles.statValue}>{goal.completedHabits}/{goal.totalHabits}</Text>
+                <Text style={styles.statLabel}>Habits Today</Text>
               </View>
             </View>
             <View style={styles.progressBarContainer}>
@@ -382,10 +452,21 @@ export default function GoalDetailPage() {
               <Text style={styles.habitsSectionTitle}>Supporting Habits</Text>
             </View>
             <View style={styles.habitsCard}>
-              {goal.habits.map((habit, index) => (
-                <View key={index} style={styles.habitItem}>
-                  <View style={styles.habitDot} />
-                  <Text style={styles.habitText}>{habit}</Text>
+              {goal.habits.map((habit) => (
+                <View key={habit.id} style={styles.habitItem}>
+                  <View style={[
+                    styles.habitDot,
+                    { backgroundColor: habit.completed ? '#22C55E' : '#6B7280' }
+                  ]} />
+                  <Text style={[
+                    styles.habitText,
+                    habit.completed && styles.habitTextCompleted
+                  ]}>
+                    {habit.title}
+                  </Text>
+                  {habit.streak > 0 && (
+                    <Text style={styles.habitStreak}>🔥{habit.streak}</Text>
+                  )}
                 </View>
               ))}
             </View>
@@ -393,7 +474,7 @@ export default function GoalDetailPage() {
         )}
         
         {/* Obstacles Section */}
-        {goal.obstacles.length > 0 && (
+        {goal.obstacles && goal.obstacles.length > 0 && (
           <View style={styles.obstaclesSection}>
             <View style={styles.obstaclesSectionHeader}>
               <Text style={styles.obstaclesIcon}>⚠️</Text>
@@ -416,7 +497,7 @@ export default function GoalDetailPage() {
             style={[styles.actionButton, styles.primaryAction]}
             onPress={handleChatWithAvatar}
           >
-            <Text style={styles.primaryActionText}>💬 Chat with {goal.avatar.name}</Text>
+            <Text style={styles.primaryActionText}>💬 Chat with {avatar.name}</Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
@@ -507,14 +588,50 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+  // Loading state
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: theme.spacing.xxl,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: theme.colors.text.secondary,
+    fontWeight: '500',
+  },
+
+  // Error state
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: theme.spacing.xl,
+  },
+  errorTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.sm,
+    textAlign: 'center',
   },
   errorText: {
     fontSize: 16,
     color: theme.colors.text.secondary,
+    textAlign: 'center',
+    marginBottom: theme.spacing.xl,
+    lineHeight: 22,
+  },
+  errorButton: {
+    backgroundColor: theme.colors.interactive.primary,
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.spacing.md,
+    borderRadius: 24,
+  },
+  errorButtonText: {
+    color: theme.colors.text.inverse,
+    fontSize: 16,
+    fontWeight: '600',
   },
   descriptionSection: {
     marginBottom: theme.spacing.xl,
@@ -779,6 +896,16 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 16,
     color: theme.colors.text.primary,
     flex: 1,
+  },
+  habitTextCompleted: {
+    color: theme.colors.text.secondary,
+    textDecorationLine: 'line-through',
+  },
+  habitStreak: {
+    fontSize: 12,
+    color: '#F59E0B',
+    fontWeight: '600',
+    marginLeft: theme.spacing.sm,
   },
 
   obstaclesSection: {

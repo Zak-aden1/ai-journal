@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import { upsertGoal, upsertHabit, insertEntry, listGoals, listHabitsByGoal, listEntries, saveGoalMeta, getGoalMeta, initializeDatabase, listHabitsWithIdsByGoal, listStandaloneHabits, listAllHabitsWithGoals, updateHabitGoalAssignment, deleteHabit as dbDeleteHabit, markHabitComplete, unmarkHabitComplete, isHabitCompletedOnDate, calculateHabitStreak } from '@/lib/db';
+import { upsertGoal, upsertHabit, insertEntry, listGoals, listHabitsByGoal, listEntries, saveGoalMeta, getGoalMeta, initializeDatabase, listHabitsWithIdsByGoal, listStandaloneHabits, listAllHabitsWithGoals, updateHabitGoalAssignment, deleteGoal as dbDeleteGoal, deleteHabit as dbDeleteHabit, markHabitComplete, unmarkHabitComplete, isHabitCompletedOnDate, calculateHabitStreak } from '@/lib/db';
 import { nextActionFrom } from '@/services/ai/suggestions';
 import { AvatarType, AvatarMemory } from '@/components/avatars/types';
 import { generatePersonalizedResponse, updateAvatarMemory, getAvatarPersonality, smartMemoryUpdate, generateMotivationalInsight, analyzeUserPatterns } from '@/lib/avatarPersonality';
@@ -73,6 +73,7 @@ type AppState = {
   toggleTheme: () => void;
   togglePrivacy: (key: keyof Privacy) => void;
   addGoal: (title: string) => Promise<string>;
+  deleteGoal: (goalId: string) => Promise<void>;
   addHabit: (goalId: string | null, habit: string) => Promise<string>;
   addStandaloneHabit: (habit: string) => Promise<string>;
   updateHabitGoalAssignment: (habitId: string, goalId: string | null) => Promise<void>;
@@ -303,6 +304,38 @@ export const useAppStore = create<AppState>()(
       await get().refreshStandaloneHabits();
       
       // TODO: Also refresh the old goal if habit was moved from another goal
+    },
+
+    deleteGoal: async (goalId) => {
+      await dbDeleteGoal(goalId);
+      
+      // Refresh goals and all related state
+      const goals = await listGoals();
+      const habitsByTitle: Record<string, string[]> = {};
+      const habitsWithIds: Record<string, HabitWithId[]> = {};
+      
+      for (const g of goals) {
+        habitsByTitle[g.title] = await listHabitsByGoal(g.id);
+        habitsWithIds[g.id] = await listHabitsWithIdsByGoal(g.id);
+      }
+      
+      set((s) => {
+        s.goals = goals.map((g) => g.title);
+        s.goalsWithIds = goals.map((g) => ({ id: g.id, title: g.title }));
+        s.habits = habitsByTitle;
+        s.habitsWithIds = habitsWithIds;
+        
+        // Clear goal metadata
+        delete s.goalMeta[goalId];
+        
+        // Clear conversations for this goal
+        delete s.conversations[goalId];
+        
+        // Reset primary goal if it was deleted
+        if (s.primaryGoalId === goalId) {
+          s.primaryGoalId = goals[0]?.id ?? null;
+        }
+      });
     },
 
     deleteHabit: async (habitId) => {
