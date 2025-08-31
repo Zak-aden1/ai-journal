@@ -10,9 +10,10 @@ interface Props {
   canProceed: boolean;
   onBack: () => void;
   onNext: () => void;
+  allowSkip?: boolean;
 }
 
-export function StepNavigation({ step, canProceed, onBack, onNext }: Props) {
+export function StepNavigation({ step, canProceed, onBack, onNext, allowSkip = false }: Props) {
   const router = useRouter();
   const onboardingData = useOnboardingStore((s) => s.data);
   const completeOnboarding = useOnboardingStore((s) => s.completeOnboarding);
@@ -35,7 +36,8 @@ export function StepNavigation({ step, canProceed, onBack, onNext }: Props) {
         });
 
         for (const habit of onboardingData.selectedHabits) {
-          await addHabit(goalId, habit);
+          const schedule = onboardingData.habitSchedules[habit];
+          await addHabit(goalId, habit, schedule);
         }
 
         if (onboardingData.firstEntry && onboardingData.firstMood) {
@@ -73,11 +75,26 @@ export function StepNavigation({ step, canProceed, onBack, onNext }: Props) {
         <View style={styles.placeholder} />
       )}
 
+      {allowSkip && !canProceed && (
+        <TouchableOpacity onPress={onNext} style={styles.skipButton}>
+          <Text style={styles.skipText}>Skip for now</Text>
+        </TouchableOpacity>
+      )}
+
       <TouchableOpacity
         onPress={onNextPress}
-        style={[styles.nextButton, (!canProceed || isSubmitting) && styles.nextButtonDisabled]}
-        disabled={!canProceed || isSubmitting}>
-        <Text style={styles.nextText}>{step === 5 ? (isSubmitting ? 'Finishing…' : 'Finish') : 'Next'}</Text>
+        style={[
+          styles.nextButton, 
+          (!canProceed || isSubmitting) && !allowSkip && styles.nextButtonDisabled,
+          allowSkip && !canProceed && styles.nextButtonSecondary
+        ]}
+        disabled={(!canProceed || isSubmitting) && !allowSkip}>
+        <Text style={[
+          styles.nextText,
+          allowSkip && !canProceed && styles.nextTextSecondary
+        ]}>
+          {step === 5 ? (isSubmitting ? 'Finishing…' : 'Finish') : 'Next'}
+        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -119,5 +136,26 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     fontSize: 16,
     fontWeight: '600',
+  },
+  skipButton: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    padding: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  skipText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+    opacity: 0.8,
+  },
+  nextButtonSecondary: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  nextTextSecondary: {
+    color: '#FFFFFF',
   },
 });

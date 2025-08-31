@@ -5,7 +5,7 @@ import { useTheme } from '@/hooks/useTheme';
 import type { AvatarType } from '@/components/avatars/types';
 
 interface CompanionCarouselProps {
-  goals: Array<{
+  goals: {
     id: string;
     title: string;
     avatar?: {
@@ -13,7 +13,7 @@ interface CompanionCarouselProps {
       name: string;
       vitality: number;
     };
-  }>;
+  }[];
   onGoalPress?: (goalId: string) => void;
   primaryGoalId?: string | null;
 }

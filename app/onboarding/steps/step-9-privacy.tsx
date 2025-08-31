@@ -28,7 +28,7 @@ export default function PrivacyStep() {
   const AvatarComponent = getAvatarComponent(avatarType);
 
   return (
-    <OnboardingContainer step={5} gradient={['#fa709a', '#fee140']}>
+    <OnboardingContainer step={6} gradient={['#fa709a', '#fee140']}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>

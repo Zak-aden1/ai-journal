@@ -10,9 +10,10 @@ interface Props {
   step: number;
   gradient: [string, string];
   totalSteps?: number;
+  allowSkip?: boolean;
 }
 
-export function OnboardingContainer({ children, step, gradient, totalSteps = 5 }: Props) {
+export function OnboardingContainer({ children, step, gradient, totalSteps = 6, allowSkip = false }: Props) {
   const canProceed = useOnboardingStore((s) => s.canProceedFromStep(step));
   const setStep = useOnboardingStore((s) => s.setStep);
 
@@ -41,6 +42,7 @@ export function OnboardingContainer({ children, step, gradient, totalSteps = 5 }
                 canProceed={canProceed}
                 onBack={() => setStep(step - 1)}
                 onNext={() => setStep(step + 1)}
+                allowSkip={allowSkip}
               />
             </View>
           </TouchableWithoutFeedback>

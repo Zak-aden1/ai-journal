@@ -6,9 +6,10 @@ import { useToast } from '@/hooks/useToast';
 interface HomeHeaderProps {
   userName: string;
   contextualGreeting: string;
+  onCreateGoal?: () => void;
 }
 
-export function HomeHeader({ userName, contextualGreeting }: HomeHeaderProps) {
+export function HomeHeader({ userName, contextualGreeting, onCreateGoal }: HomeHeaderProps) {
   const { theme } = useTheme();
   const { showTipToast } = useToast();
   const styles = createStyles(theme);
@@ -23,6 +24,15 @@ export function HomeHeader({ userName, contextualGreeting }: HomeHeaderProps) {
       </View>
 
       <View style={styles.quickActions}>
+        {onCreateGoal && (
+          <TouchableOpacity
+            style={[styles.quickActionButton, styles.createGoalButton]}
+            onPress={onCreateGoal}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.quickActionIcon}>🎯</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           style={styles.quickActionButton}
           onPress={() => showTipToast()}
@@ -80,5 +90,10 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   quickActionIcon: {
     fontSize: 20,
+  },
+  createGoalButton: {
+    backgroundColor: theme.colors.primary + '15',
+    borderWidth: 1,
+    borderColor: theme.colors.primary + '30',
   },
 });

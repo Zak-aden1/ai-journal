@@ -6,10 +6,6 @@ import {
   StyleSheet, 
   SafeAreaView, 
   ScrollView,
-  Modal,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
   Alert
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -19,7 +15,10 @@ import { HabitCheckbox } from '@/components/HabitCheckbox';
 import { HabitStreakStats } from '@/components/HabitStreakStats';
 import { HabitStreakCalendar } from '@/components/HabitStreakCalendar';
 import { HabitCreationModal } from '@/components/HabitCreationModal';
+import { CreateGoalModal } from '@/components/CreateGoalModal';
+import { GoalEnhancementCard } from '@/components/GoalEnhancementCard';
 import { PlantAvatar, PetAvatar, RobotAvatar, BaseAvatar } from '@/components/avatars';
+import { useGoalEnhancement } from '@/lib/goalEnhancement';
 import { isHabitCompletedOnDate } from '@/lib/db';
 
 interface Goal {
@@ -92,8 +91,6 @@ export default function GoalsScreen() {
   const [loading, setLoading] = useState(true);
   const [showNewGoal, setShowNewGoal] = useState(false);
   const [showNewHabit, setShowNewHabit] = useState(false);
-  const [newGoalTitle, setNewGoalTitle] = useState('');
-  const [newGoalDescription, setNewGoalDescription] = useState('');
   const styles = createStyles(theme);
 
   // Load and process real data from store
@@ -180,6 +177,24 @@ export default function GoalsScreen() {
   const activeGoals = goals.filter(g => g.isActive);
   const completedGoals = goals.filter(g => !g.isActive);
 
+  // Component to use hook correctly
+  const GoalEnhancementWrapper = ({ goal }: { goal: Goal }) => {
+    const enhancement = useGoalEnhancement(goal.id);
+    
+    if (!enhancement || enhancement.suggestions.length === 0) {
+      return null;
+    }
+    
+    return (
+      <GoalEnhancementCard
+        goalId={goal.id}
+        goalTitle={goal.title}
+        completenessScore={enhancement.completenessScore}
+        suggestions={enhancement.suggestions}
+      />
+    );
+  };
+
   const getGoalHabits = (goalId: string) => {
     return habits.filter(h => h.goalId === goalId);
   };
@@ -227,30 +242,9 @@ export default function GoalsScreen() {
     }
   };
 
-  const handleSaveNewGoal = async () => {
-    if (newGoalTitle.trim()) {
-      try {
-        const { addGoal, saveWhy } = useAppStore.getState();
-        const goalId = await addGoal(newGoalTitle.trim());
-        
-        // Save description as "why" if provided
-        if (newGoalDescription.trim()) {
-          await saveWhy(goalId, {
-            why_text: newGoalDescription.trim()
-          });
-        }
-        
-        setNewGoalTitle('');
-        setNewGoalDescription('');
-        setShowNewGoal(false);
-        
-        // The useEffect will automatically refresh the goals list
-        Alert.alert('Success! 🎯', 'New goal created successfully!');
-      } catch (error) {
-        console.error('Error creating goal:', error);
-        Alert.alert('Error', 'Could not create goal. Please try again.');
-      }
-    }
+  const handleGoalCreated = (goalId: string) => {
+    // The useEffect will automatically refresh the goals list
+    console.log('Goal created with ID:', goalId);
   };
 
   const renderGoalCard = (goal: Goal) => {
@@ -452,6 +446,16 @@ export default function GoalsScreen() {
       {!loading && activeGoals.length > 0 && (
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Goal Enhancement Suggestions */}
+        {activeGoals.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Boost Your Success</Text>
+            {activeGoals.slice(0, 2).map((goal) => (
+              <GoalEnhancementWrapper key={goal.id} goal={goal} />
+            ))}
+          </>
+        )}
+
         {/* Active Goals */}
         <Text style={styles.sectionTitle}>Active Goals</Text>
         <View style={styles.goalsGrid}>
@@ -526,73 +530,12 @@ export default function GoalsScreen() {
       )}
 
 
-      {/* New Goal Modal */}
-      <Modal
+      {/* Create Goal Modal */}
+      <CreateGoalModal
         visible={showNewGoal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowNewGoal(false)}
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <KeyboardAvoidingView 
-            style={styles.modalContent}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          >
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowNewGoal(false)}>
-                <Text style={styles.modalClose}>Cancel</Text>
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>New Goal</Text>
-              <TouchableOpacity 
-                onPress={handleSaveNewGoal}
-                style={[
-                  styles.modalSave,
-                  !newGoalTitle.trim() && styles.modalSaveDisabled
-                ]}
-                disabled={!newGoalTitle.trim()}
-              >
-                <Text style={[
-                  styles.modalSaveText,
-                  !newGoalTitle.trim() && styles.modalSaveTextDisabled
-                ]}>
-                  Save
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.newGoalForm}>
-              <View style={styles.formSection}>
-                <Text style={styles.formLabel}>Goal Title</Text>
-                <TextInput
-                  style={styles.formInput}
-                  placeholder="What do you want to achieve?"
-                  value={newGoalTitle}
-                  onChangeText={setNewGoalTitle}
-                  autoFocus
-                />
-              </View>
-
-              <View style={styles.formSection}>
-                <Text style={styles.formLabel}>Why is this important to you? (Optional)</Text>
-                <TextInput
-                  style={[styles.formInput, styles.formTextArea]}
-                  placeholder="Describe why this goal matters to you. This will help your avatar companion provide better support and motivation..."
-                  value={newGoalDescription}
-                  onChangeText={setNewGoalDescription}
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                />
-                {newGoalDescription.length > 0 && (
-                  <Text style={styles.characterCount}>
-                    {newGoalDescription.length} characters
-                  </Text>
-                )}
-              </View>
-            </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
+        onClose={() => setShowNewGoal(false)}
+        onGoalCreated={handleGoalCreated}
+      />
 
       {/* Habit Creation Modal */}
       <HabitCreationModal

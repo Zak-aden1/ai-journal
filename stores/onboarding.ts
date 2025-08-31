@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { useAppStore } from './app';
+import { HabitSchedule } from '@/lib/db';
 
 type Mode = 'Companion' | 'Coach';
 type Mood = '😊'|'😐'|'😔'|'😤'|'😍';
@@ -33,6 +34,7 @@ interface OnboardingData {
   customObstacles: string[];
   selectedHabits: string[];
   customHabits: string[];
+  habitSchedules: Record<string, HabitSchedule>;
   
   // Step 8 - Tutorial Completion
   tutorialCompleted: boolean;
@@ -75,6 +77,8 @@ interface OnboardingStore {
   removeObstacle: (obstacle: string) => void;
   addHabit: (habit: string) => void;
   removeHabit: (habit: string) => void;
+  setHabitSchedule: (habit: string, schedule: HabitSchedule) => void;
+  removeHabitSchedule: (habit: string) => void;
   setTutorialCompleted: () => void;
   setFirstHabitCompleted: () => void;
   setPrivacy: (key: keyof OnboardingData['privacy'], value: boolean) => void;
@@ -110,6 +114,7 @@ export const useOnboardingStore = create<OnboardingStore>()(
       customObstacles: [],
       selectedHabits: [],
       customHabits: [],
+      habitSchedules: {},
       tutorialCompleted: false,
       firstHabitCompleted: false,
       privacy: { localOnly: true, voiceRecording: false },
@@ -201,6 +206,16 @@ export const useOnboardingStore = create<OnboardingStore>()(
     
     removeHabit: (habit) => set((state) => {
       state.data.selectedHabits = state.data.selectedHabits.filter(h => h !== habit);
+      // Also remove the schedule for this habit
+      delete state.data.habitSchedules[habit];
+    }),
+    
+    setHabitSchedule: (habit, schedule) => set((state) => {
+      state.data.habitSchedules[habit] = schedule;
+    }),
+    
+    removeHabitSchedule: (habit) => set((state) => {
+      delete state.data.habitSchedules[habit];
     }),
     
     setTutorialCompleted: () => set((state) => { 
@@ -245,6 +260,7 @@ export const useOnboardingStore = create<OnboardingStore>()(
         customObstacles: [],
         selectedHabits: [],
         customHabits: [],
+        habitSchedules: {},
         tutorialCompleted: false,
         firstHabitCompleted: false,
         privacy: { localOnly: true, voiceRecording: false },
@@ -255,13 +271,14 @@ export const useOnboardingStore = create<OnboardingStore>()(
     
     canProceedFromStep: (step) => {
       const { data } = get();
-      // New streamlined flow: 1=Avatar Name, 2=Goal Details, 3=Deep Why, 4=Tutorial, 5=Privacy
+      // New 6-step flow: 1=Avatar Name, 2=Goal Details, 3=Habit Selection, 4=Your Why, 5=Tutorial, 6=Privacy
       switch (step) {
         case 1: return data.avatarName.trim().length >= 2; // Avatar personalization
         case 2: return data.goalTitle.trim().length >= 3; // Goal details
-        case 3: return data.deepWhy.trim().length >= 10; // Your why
-        case 4: return data.tutorialCompleted && data.firstHabitCompleted; // Tutorial
-        case 5: return data.firstMood !== null && data.firstEntry.trim().length > 0; // Privacy/First entry
+        case 3: return true; // Habit selection - optional, can always proceed
+        case 4: return data.deepWhy.trim().length >= 10; // Your why
+        case 5: return data.tutorialCompleted && data.firstHabitCompleted; // Tutorial
+        case 6: return data.firstMood !== null && data.firstEntry.trim().length > 0; // Privacy/First entry
         default: return true;
       }
     }

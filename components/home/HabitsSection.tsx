@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import Animated, { useAnimatedStyle, interpolate, SharedValue } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/hooks/useTheme';
 
@@ -19,7 +20,7 @@ interface HabitsSectionProps {
   completedTodayCount: number;
   recommendedHabitId?: string;
   holdingHabitId?: string | null;
-  progressRef: Animated.Value;
+  progressValue: SharedValue<number>;
   onHabitHoldStart: (habitId: string) => void;
   onHabitHoldEnd: () => void;
 }
@@ -29,7 +30,7 @@ export function HabitsSection({
   completedTodayCount,
   recommendedHabitId,
   holdingHabitId,
-  progressRef,
+  progressValue,
   onHabitHoldStart,
   onHabitHoldEnd
 }: HabitsSectionProps) {
@@ -129,10 +130,7 @@ export function HabitsSection({
                         styles.progressRing,
                         {
                           transform: [{
-                            rotate: progressRef.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: ['0deg', '360deg']
-                            })
+                            rotate: `${interpolate(progressValue.value, [0, 1], [0, 360])}deg`
                           }]
                         }
                       ]}

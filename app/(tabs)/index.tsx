@@ -1,22 +1,41 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
+import { useSharedValue, withTiming } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { MicroReflectionSheet } from '@/components/MicroReflectionSheet';
 import { HabitCelebrationModal } from '@/components/HabitCelebrationModal';
 import { MotivationalToast } from '@/components/MotivationalToast';
 import { FloatingActionButton } from '@/components/FloatingActionButton';
-import { HabitCreationModal } from '@/components/HabitCreationModal';
+import { HabitCreationWizard } from '@/components/habit-creation/HabitCreationWizard';
+import { CreateGoalModal } from '@/components/CreateGoalModal';
 import { HabitManagementScreen } from '@/components/HabitManagementScreen';
 import { FeaturedGoalCarousel } from '@/components/FeaturedGoalCarousel';
 import { HomeHeader } from '@/components/home/HomeHeader';
 import { HabitsSection } from '@/components/home/HabitsSection';
 import { ProgressOverview } from '@/components/home/ProgressOverview';
+import { ProgressDashboard } from '@/components/home/ProgressDashboard';
 
 import { useTheme } from '@/hooks/useTheme';
 import { useToast } from '@/hooks/useToast';
 import { useAppStore } from '@/stores/app';
 import { track } from '@/utils/analytics';
 import { isHabitCompletedOnDate } from '@/lib/db';
+
+// Helper function to get appropriate emoji for habit
+const getHabitEmoji = (habitTitle: string) => {
+  const title = habitTitle.toLowerCase();
+  if (title.includes('run') || title.includes('jog')) return '🏃‍♀️';
+  if (title.includes('read')) return '📚';
+  if (title.includes('meditat') || title.includes('mindful')) return '🧘‍♀️';
+  if (title.includes('water') || title.includes('hydrat')) return '💧';
+  if (title.includes('stretch') || title.includes('yoga')) return '🧘‍♀️';
+  if (title.includes('workout') || title.includes('exercise')) return '💪';
+  if (title.includes('write') || title.includes('journal')) return '✍️';
+  if (title.includes('sleep')) return '😴';
+  if (title.includes('eat') || title.includes('nutrition')) return '🥗';
+  if (title.includes('walk')) return '🚶‍♀️';
+  return '⭐';
+};
 
 export default function HomeScreen() {
   const { theme } = useTheme();
@@ -30,7 +49,9 @@ export default function HomeScreen() {
     setPrimaryGoal,
     getTodaysPendingHabits,
     toggleHabitCompletion,
-    getHabitStreak
+    getHabitStreak,
+    getAllTodaysScheduledHabits,
+    getTodaysScheduledHabits
   } = useAppStore();
   const { 
     notification, 
@@ -44,13 +65,14 @@ export default function HomeScreen() {
   const [sheet, setSheet] = useState(false);
   const [celebrationModal, setCelebrationModal] = useState(false);
   const [showHabitCreation, setShowHabitCreation] = useState(false);
+  const [showCreateGoal, setShowCreateGoal] = useState(false);
   const [showHabitManagement, setShowHabitManagement] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [holdingHabit, setHoldingHabit] = useState<string | null>(null);
   const [primaryGoal, setPrimaryGoalState] = useState<{ id: string; title: string } | null>(null);
   const [primaryGoalHabits, setPrimaryGoalHabits] = useState<any[]>([]);
   const [secondaryGoals, setSecondaryGoals] = useState<{ id: string; title: string; habitCount: number; completedToday: number }[]>([]);
-  const progressRef = useRef(new Animated.Value(0)).current;
+  const progressValue = useSharedValue(0);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const styles = createStyles(theme);
   
@@ -68,9 +90,18 @@ export default function HomeScreen() {
           const goal = getPrimaryGoal();
           setPrimaryGoalState(goal);
           
-          const habits = habitsWithIds[primaryGoalId] || [];
+          // Get today's scheduled habits for the primary goal
+          const goalScheduledHabits = await getTodaysScheduledHabits(primaryGoalId);
+          
+          // Also include today's scheduled standalone habits
+          const allTodaysHabits = await getAllTodaysScheduledHabits();
+          const standaloneScheduledHabits = allTodaysHabits.filter(h => !h.goalId);
+          
+          // Combine goal habits and standalone habits
+          const allScheduledHabits = [...goalScheduledHabits, ...standaloneScheduledHabits];
+          
           const habitsWithStats = await Promise.all(
-            habits.map(async (habit) => {
+            allScheduledHabits.map(async (habit) => {
               try {
                 const streak = await getHabitStreak(habit.id);
                 const isCompleted = await isHabitCompletedOnDate(habit.id);
@@ -80,9 +111,9 @@ export default function HomeScreen() {
                   completed: isCompleted,
                   streak: streak.current,
                   description: `Keep up your ${habit.title.toLowerCase()} routine`,
-                  time: '09:00',
+                  time: habit.schedule?.specificTime || 'Anytime',
                   difficulty: 'medium' as const,
-                  emoji: '⭐',
+                  emoji: getHabitEmoji(habit.title),
                 };
               } catch {
                 return {
@@ -91,9 +122,9 @@ export default function HomeScreen() {
                   completed: false,
                   streak: 0,
                   description: `Keep up your ${habit.title.toLowerCase()} routine`,
-                  time: '09:00',
+                  time: habit.schedule?.specificTime || 'Anytime',
                   difficulty: 'medium' as const,
-                  emoji: '⭐',
+                  emoji: getHabitEmoji(habit.title),
                 };
               }
             })
@@ -203,7 +234,7 @@ export default function HomeScreen() {
     };
     
     loadData();
-  }, [isHydrated, goalsWithIds, habitsWithIds, selectSmartPrimaryGoal, getPrimaryGoal, getHabitStreak, getTodaysPendingHabits, updateAvatarVitality]);
+  }, [isHydrated, goalsWithIds, habitsWithIds, selectSmartPrimaryGoal, getPrimaryGoal, getHabitStreak, getTodaysPendingHabits, updateAvatarVitality, getAllTodaysScheduledHabits, getTodaysScheduledHabits]);
   
   const [completedHabit, setCompletedHabit] = useState<any>(null);
   const [pendingHabit, setPendingHabit] = useState<any>(null);
@@ -290,12 +321,8 @@ export default function HomeScreen() {
     setHoldingHabit(habitId);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
-    // Start progress animation
-    Animated.timing(progressRef, {
-      toValue: 1,
-      duration: 3000,
-      useNativeDriver: false,
-    }).start();
+               // Start progress animation
+           progressValue.value = withTiming(1, { duration: 3000 });
     
     // Set timer for completion
     holdTimerRef.current = setTimeout(() => {
@@ -319,12 +346,8 @@ export default function HomeScreen() {
     }
     setHoldingHabit(null);
     
-    // Reset progress animation
-    Animated.timing(progressRef, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: false,
-    }).start();
+               // Reset progress animation
+           progressValue.value = withTiming(0, { duration: 200 });
   };
 
   const handleHabitComplete = async (habitId: string) => {
@@ -343,10 +366,10 @@ export default function HomeScreen() {
         }
       }
       
-      setPendingHabit({ ...habit, id: habitId });
-      setSheet(true);
-      setHoldingHabit(null);
-      progressRef.setValue(0);
+                   setPendingHabit({ ...habit, id: habitId });
+             setSheet(true);
+             setHoldingHabit(null);
+             progressValue.value = 0;
       
       // Update local state to show completion
       setPrimaryGoalHabits(prev => 
@@ -449,7 +472,24 @@ export default function HomeScreen() {
         {/* Header */}
         <HomeHeader 
           userName="Zak" 
-          contextualGreeting={getContextualGreeting()} 
+          contextualGreeting={getContextualGreeting()}
+          onCreateGoal={() => setShowCreateGoal(true)}
+        />
+        
+        {/* Progress Dashboard */}
+        <ProgressDashboard 
+          onGoalPress={(goalId) => {
+            setPrimaryGoal(goalId);
+            // Refresh the primary goal state
+            const newPrimaryGoal = goalsWithIds.find(g => g.id === goalId);
+            if (newPrimaryGoal) {
+              setPrimaryGoalState(newPrimaryGoal);
+            }
+          }}
+          onAnalyticsPress={() => {
+            // Navigate to analytics tab - would need navigation context in real implementation
+            console.log('Navigate to analytics');
+          }}
         />
         
         {/* Goal Carousel Section */}
@@ -504,7 +544,7 @@ export default function HomeScreen() {
           completedTodayCount={completedTodayCount}
           recommendedHabitId={recommendedHabit?.id}
           holdingHabitId={holdingHabit}
-          progressRef={progressRef}
+          progressValue={progressValue}
           onHabitHoldStart={handleHabitHoldStart}
           onHabitHoldEnd={handleHabitHoldEnd}
         />
@@ -591,10 +631,20 @@ export default function HomeScreen() {
         showPulse={false}
       />
 
-      {/* Habit Creation Modal */}
-      <HabitCreationModal
+      {/* Enhanced Habit Creation Wizard */}
+      <HabitCreationWizard
         visible={showHabitCreation}
         onClose={() => setShowHabitCreation(false)}
+      />
+      
+      {/* Create Goal Modal */}
+      <CreateGoalModal
+        visible={showCreateGoal}
+        onClose={() => setShowCreateGoal(false)}
+        onGoalCreated={() => {
+          // Data will refresh automatically via useEffect
+          console.log('Goal created from home screen');
+        }}
       />
 
       {/* Habit Management Screen */}

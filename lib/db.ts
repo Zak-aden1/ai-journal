@@ -4,6 +4,21 @@ import type { Mood, Entry, EntryType } from '@/stores/app';
 
 type GoalRow = { id: string; title: string };
 
+export interface HabitSchedule {
+  daysOfWeek: string[]; // ['mon', 'tue', 'wed'] etc
+  timeType: 'morning' | 'afternoon' | 'evening' | 'specific' | 'anytime' | 'lunch';
+  specificTime?: string; // '07:30' format
+  isDaily: boolean; // shortcut for all 7 days
+}
+
+export interface EnhancedHabitData {
+  description?: string;
+  category?: string; // HabitCategory
+  duration?: number; // minutes
+  difficulty?: 'easy' | 'medium' | 'hard';
+  timeRange?: { start: string; end: string };
+}
+
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 async function getDbAsync(): Promise<SQLite.SQLiteDatabase> {
@@ -31,6 +46,12 @@ export async function initializeDatabase(): Promise<void> {
   
   // Migration: Add type column to existing entries table if missing
   await migrateEntriesTable(database);
+  
+  // Migration: Add scheduling columns to habits table
+  await migrateHabitsSchedulingInternal(database);
+  
+  // Migration: Add enhanced habit features
+  await migrateHabitsEnhancedFeatures(database);
 }
 
 async function migrateHabitsTable(database: SQLite.SQLiteDatabase): Promise<void> {
@@ -113,6 +134,112 @@ async function migrateEntriesTable(database: SQLite.SQLiteDatabase): Promise<voi
   }
 }
 
+async function migrateHabitsSchedulingInternal(database: SQLite.SQLiteDatabase): Promise<void> {
+  try {
+    // Check if habits table has the new scheduling columns
+    const tableInfo = await database.getAllAsync("PRAGMA table_info(habits)");
+    const daysOfWeekColumn = tableInfo.find((col: any) => col.name === 'daysOfWeek');
+    const timeTypeColumn = tableInfo.find((col: any) => col.name === 'timeType');
+    const specificTimeColumn = tableInfo.find((col: any) => col.name === 'specificTime');
+    const isDailyColumn = tableInfo.find((col: any) => col.name === 'isDaily');
+    
+    // Add missing scheduling columns
+    if (!daysOfWeekColumn) {
+      console.log('Adding daysOfWeek column to habits table...');
+      await database.execAsync(`
+        ALTER TABLE habits ADD COLUMN daysOfWeek TEXT DEFAULT '[]';
+      `);
+    }
+    
+    if (!timeTypeColumn) {
+      console.log('Adding timeType column to habits table...');
+      await database.execAsync(`
+        ALTER TABLE habits ADD COLUMN timeType TEXT DEFAULT 'anytime';
+      `);
+    }
+    
+    if (!specificTimeColumn) {
+      console.log('Adding specificTime column to habits table...');
+      await database.execAsync(`
+        ALTER TABLE habits ADD COLUMN specificTime TEXT;
+      `);
+    }
+    
+    if (!isDailyColumn) {
+      console.log('Adding isDaily column to habits table...');
+      await database.execAsync(`
+        ALTER TABLE habits ADD COLUMN isDaily INTEGER DEFAULT 1;
+      `);
+    }
+    
+    console.log('Habits scheduling migration completed successfully');
+    
+  } catch (error) {
+    console.error('Error during habits scheduling migration:', error);
+    // Don't throw - continue with app initialization
+  }
+}
+
+async function migrateHabitsEnhancedFeatures(database: SQLite.SQLiteDatabase): Promise<void> {
+  try {
+    // Check if habits table has the new enhanced feature columns
+    const tableInfo = await database.getAllAsync("PRAGMA table_info(habits)");
+    const descriptionColumn = tableInfo.find((col: any) => col.name === 'description');
+    const categoryColumn = tableInfo.find((col: any) => col.name === 'category');
+    const durationColumn = tableInfo.find((col: any) => col.name === 'duration');
+    const difficultyColumn = tableInfo.find((col: any) => col.name === 'difficulty');
+    const timeRangeColumn = tableInfo.find((col: any) => col.name === 'timeRange');
+    
+    // Add missing enhanced feature columns
+    if (!descriptionColumn) {
+      console.log('Adding description column to habits table...');
+      await database.execAsync(`
+        ALTER TABLE habits ADD COLUMN description TEXT;
+      `);
+    }
+    
+    if (!categoryColumn) {
+      console.log('Adding category column to habits table...');
+      await database.execAsync(`
+        ALTER TABLE habits ADD COLUMN category TEXT;
+      `);
+    }
+    
+    if (!durationColumn) {
+      console.log('Adding duration column to habits table...');
+      await database.execAsync(`
+        ALTER TABLE habits ADD COLUMN duration INTEGER DEFAULT 15;
+      `);
+    }
+    
+    if (!difficultyColumn) {
+      console.log('Adding difficulty column to habits table...');
+      await database.execAsync(`
+        ALTER TABLE habits ADD COLUMN difficulty TEXT DEFAULT 'medium';
+      `);
+    }
+    
+    if (!timeRangeColumn) {
+      console.log('Adding timeRange column to habits table...');
+      await database.execAsync(`
+        ALTER TABLE habits ADD COLUMN timeRange TEXT;
+      `);
+    }
+    
+    console.log('Habits enhanced features migration completed successfully');
+    
+  } catch (error) {
+    console.error('Error during habits enhanced features migration:', error);
+    // Don't throw - continue with app initialization
+  }
+}
+
+// Exported wrapper for the migration function
+export async function migrateHabitsScheduling(): Promise<void> {
+  const database = await getDbAsync();
+  return migrateHabitsSchedulingInternal(database);
+}
+
 async function runAsync(database: SQLite.SQLiteDatabase, sql: string, params: any[] = []): Promise<void> {
   await database.runAsync(sql, params);
 }
@@ -134,10 +261,51 @@ export async function upsertGoal(title: string): Promise<string> {
   return id;
 }
 
-export async function upsertHabit(goalId: string | null, title: string): Promise<string> {
+export async function upsertHabit(
+  goalId: string | null, 
+  title: string, 
+  schedule?: HabitSchedule,
+  enhancedData?: EnhancedHabitData
+): Promise<string> {
   const database = await getDbAsync();
   const id = generateId();
-  await runAsync(database, 'INSERT INTO habits (id, goalId, title) VALUES (?, ?, ?)', [id, goalId, title]);
+  
+  // Use default schedule if none provided (daily, anytime)
+  const defaultSchedule: HabitSchedule = {
+    daysOfWeek: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+    timeType: 'anytime',
+    isDaily: true
+  };
+  
+  const habitSchedule = schedule || defaultSchedule;
+  
+  // Enhanced data with defaults
+  const description = enhancedData?.description || null;
+  const category = enhancedData?.category || null;
+  const duration = enhancedData?.duration || 15;
+  const difficulty = enhancedData?.difficulty || 'medium';
+  const timeRange = enhancedData?.timeRange ? JSON.stringify(enhancedData.timeRange) : null;
+  
+  await runAsync(database, 
+    `INSERT INTO habits (
+      id, goalId, title, daysOfWeek, timeType, specificTime, isDaily,
+      description, category, duration, difficulty, timeRange
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+    [
+      id, 
+      goalId, 
+      title, 
+      JSON.stringify(habitSchedule.daysOfWeek),
+      habitSchedule.timeType,
+      habitSchedule.specificTime || null,
+      habitSchedule.isDaily ? 1 : 0,
+      description,
+      category,
+      duration,
+      difficulty,
+      timeRange
+    ]
+  );
   return id;
 }
 
@@ -189,6 +357,120 @@ export async function listStandaloneHabits(): Promise<Array<{ id: string; title:
     console.error('Error loading standalone habits:', error);
     return [];
   }
+}
+
+export interface HabitWithSchedule {
+  id: string;
+  title: string;
+  goalId: string | null;
+  daysOfWeek: string[];
+  timeType: 'morning' | 'afternoon' | 'evening' | 'specific' | 'anytime' | 'lunch';
+  specificTime?: string;
+  isDaily: boolean;
+  // Enhanced features
+  description?: string;
+  category?: string;
+  duration?: number;
+  difficulty?: 'easy' | 'medium' | 'hard';
+  timeRange?: { start: string; end: string };
+}
+
+export async function listHabitsWithScheduleByGoal(goalId: string): Promise<HabitWithSchedule[]> {
+  try {
+    const database = await getDbAsync();
+    const rows = await getAllAsync<any>(database, 
+      `SELECT id, title, goalId, daysOfWeek, timeType, specificTime, isDaily,
+              description, category, duration, difficulty, timeRange 
+       FROM habits WHERE goalId = ? ORDER BY rowid ASC`, 
+      [goalId]
+    );
+    
+    return rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      goalId: row.goalId,
+      daysOfWeek: row.daysOfWeek ? JSON.parse(row.daysOfWeek) : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+      timeType: row.timeType || 'anytime',
+      specificTime: row.specificTime,
+      isDaily: Boolean(row.isDaily),
+      description: row.description,
+      category: row.category,
+      duration: row.duration || 15,
+      difficulty: row.difficulty || 'medium',
+      timeRange: row.timeRange ? JSON.parse(row.timeRange) : undefined
+    }));
+  } catch (error) {
+    console.error('Error loading habits with schedule for goal:', error);
+    return [];
+  }
+}
+
+export async function listAllHabitsWithSchedule(): Promise<HabitWithSchedule[]> {
+  try {
+    const database = await getDbAsync();
+    const rows = await getAllAsync<any>(database, 
+      `SELECT id, title, goalId, daysOfWeek, timeType, specificTime, isDaily,
+              description, category, duration, difficulty, timeRange 
+       FROM habits ORDER BY rowid ASC`
+    );
+    
+    return rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      goalId: row.goalId,
+      daysOfWeek: row.daysOfWeek ? JSON.parse(row.daysOfWeek) : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+      timeType: row.timeType || 'anytime',
+      specificTime: row.specificTime,
+      isDaily: Boolean(row.isDaily),
+      description: row.description,
+      category: row.category,
+      duration: row.duration || 15,
+      difficulty: row.difficulty || 'medium',
+      timeRange: row.timeRange ? JSON.parse(row.timeRange) : undefined
+    }));
+  } catch (error) {
+    console.error('Error loading all habits with schedule:', error);
+    return [];
+  }
+}
+
+// Utility function to get today's day string
+export function getTodayDayString(): string {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return days[new Date().getDay()];
+}
+
+// Filter habits for today's schedule
+export function filterHabitsForToday(habits: HabitWithSchedule[]): HabitWithSchedule[] {
+  const today = getTodayDayString();
+  
+  return habits.filter(habit => {
+    if (habit.isDaily) return true;
+    return habit.daysOfWeek.includes(today);
+  });
+}
+
+// Sort habits by time of day
+export function sortHabitsByTime(habits: HabitWithSchedule[]): HabitWithSchedule[] {
+  const timeOrder = { morning: 1, afternoon: 2, evening: 3, specific: 4, anytime: 5 };
+  
+  return habits.sort((a, b) => {
+    // First sort by time type
+    const aOrder = timeOrder[a.timeType];
+    const bOrder = timeOrder[b.timeType];
+    
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder;
+    }
+    
+    // If both have specific times, sort by time
+    if (a.timeType === 'specific' && b.timeType === 'specific' && a.specificTime && b.specificTime) {
+      return a.specificTime.localeCompare(b.specificTime);
+    }
+    
+    // Otherwise maintain original order
+    return 0;
+  });
 }
 
 export async function listAllHabitsWithGoals(): Promise<Array<{ id: string; title: string; goalId: string | null; goalTitle?: string }>> {
@@ -374,5 +656,90 @@ export async function calculateHabitStreak(habitId: string): Promise<{ current: 
   
   return { current: currentStreak, longest: Math.max(longestStreak, currentStreak) };
 }
+
+// Extended habit interface for scheduling
+export interface HabitWithSchedule {
+  id: string;
+  title: string;
+  goalId: string | null;
+  daysOfWeek: string[];
+  timeType: 'morning' | 'afternoon' | 'evening' | 'specific' | 'anytime';
+  specificTime?: string;
+  isDaily: boolean;
+  schedule?: HabitSchedule;
+}
+
+// List habits with scheduling info for a specific goal
+export async function listScheduledHabitsForGoal(goalId: string): Promise<HabitWithSchedule[]> {
+  const database = await getDbAsync();
+  const rows = await getAllAsync<{
+    id: string; 
+    title: string; 
+    goalId: string | null; 
+    daysOfWeek: string; 
+    timeType: string; 
+    specificTime: string | null;
+    isDaily: number;
+    description: string | null;
+    category: string | null;
+    duration: number | null;
+    difficulty: string | null;
+    timeRange: string | null;
+  }>(database, `SELECT id, title, goalId, daysOfWeek, timeType, specificTime, isDaily,
+                       description, category, duration, difficulty, timeRange 
+                FROM habits WHERE goalId = ?`, [goalId]);
+  
+  return rows.map(row => ({
+    id: row.id,
+    title: row.title,
+    goalId: row.goalId,
+    daysOfWeek: JSON.parse(row.daysOfWeek || '[]'),
+    timeType: row.timeType as any,
+    specificTime: row.specificTime || undefined,
+    isDaily: Boolean(row.isDaily),
+    description: row.description || undefined,
+    category: row.category || undefined,
+    duration: row.duration || 15,
+    difficulty: (row.difficulty as any) || 'medium',
+    timeRange: row.timeRange ? JSON.parse(row.timeRange) : undefined
+  }));
+}
+
+// List standalone habits with scheduling info
+export async function listScheduledStandaloneHabits(): Promise<HabitWithSchedule[]> {
+  const database = await getDbAsync();
+  const rows = await getAllAsync<{
+    id: string; 
+    title: string; 
+    goalId: string | null; 
+    daysOfWeek: string; 
+    timeType: string; 
+    specificTime: string | null;
+    isDaily: number;
+    description: string | null;
+    category: string | null;
+    duration: number | null;
+    difficulty: string | null;
+    timeRange: string | null;
+  }>(database, `SELECT id, title, goalId, daysOfWeek, timeType, specificTime, isDaily,
+                       description, category, duration, difficulty, timeRange 
+                FROM habits WHERE goalId IS NULL`);
+  
+  return rows.map(row => ({
+    id: row.id,
+    title: row.title,
+    goalId: row.goalId,
+    daysOfWeek: JSON.parse(row.daysOfWeek || '[]'),
+    timeType: row.timeType as any,
+    specificTime: row.specificTime || undefined,
+    isDaily: Boolean(row.isDaily),
+    description: row.description || undefined,
+    category: row.category || undefined,
+    duration: row.duration || 15,
+    difficulty: (row.difficulty as any) || 'medium',
+    timeRange: row.timeRange ? JSON.parse(row.timeRange) : undefined
+  }));
+}
+
 
 

@@ -171,7 +171,7 @@ export default function InteractiveTutorialStep() {
   const currentStepData = tutorialSteps[currentStep];
   
   return (
-    <OnboardingContainer step={4} gradient={['#667eea', '#764ba2']}>
+    <OnboardingContainer step={5} gradient={['#667eea', '#764ba2']}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>

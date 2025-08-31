@@ -59,7 +59,7 @@ export default function AvatarPersonalizationStep() {
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Meet Your Companion</Text>
+          <Text style={styles.title}>Meet Your Companion s</Text>
           <Text style={styles.subtitle}>
             Give your companion a name and learn about their personality
           </Text>

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import { upsertGoal, upsertHabit, insertEntry, listGoals, listHabitsByGoal, listEntries, saveGoalMeta, getGoalMeta, initializeDatabase, listHabitsWithIdsByGoal, listStandaloneHabits, listAllHabitsWithGoals, updateHabitGoalAssignment, deleteGoal as dbDeleteGoal, deleteHabit as dbDeleteHabit, markHabitComplete, unmarkHabitComplete, isHabitCompletedOnDate, calculateHabitStreak } from '@/lib/db';
+import { upsertGoal, upsertHabit, insertEntry, listGoals, listHabitsByGoal, listEntries, saveGoalMeta, getGoalMeta, initializeDatabase, listHabitsWithIdsByGoal, listStandaloneHabits, listAllHabitsWithGoals, updateHabitGoalAssignment, deleteGoal as dbDeleteGoal, deleteHabit as dbDeleteHabit, markHabitComplete, unmarkHabitComplete, isHabitCompletedOnDate, calculateHabitStreak, HabitSchedule, HabitWithSchedule, filterHabitsForToday, sortHabitsByTime, migrateHabitsScheduling, listScheduledHabitsForGoal, listScheduledStandaloneHabits, EnhancedHabitData } from '@/lib/db';
 import { nextActionFrom } from '@/services/ai/suggestions';
 import { AvatarType, AvatarMemory } from '@/components/avatars/types';
 import { generatePersonalizedResponse, updateAvatarMemory, getAvatarPersonality, smartMemoryUpdate, generateMotivationalInsight, analyzeUserPatterns } from '@/lib/avatarPersonality';
@@ -74,8 +74,8 @@ type AppState = {
   togglePrivacy: (key: keyof Privacy) => void;
   addGoal: (title: string) => Promise<string>;
   deleteGoal: (goalId: string) => Promise<void>;
-  addHabit: (goalId: string | null, habit: string) => Promise<string>;
-  addStandaloneHabit: (habit: string) => Promise<string>;
+  addHabit: (goalId: string | null, habit: string, schedule?: HabitSchedule, enhancedData?: EnhancedHabitData) => Promise<string>;
+  addStandaloneHabit: (habit: string, schedule?: HabitSchedule, enhancedData?: EnhancedHabitData) => Promise<string>;
   updateHabitGoalAssignment: (habitId: string, goalId: string | null) => Promise<void>;
   deleteHabit: (habitId: string) => Promise<void>;
   submitEntry: (text: string, mood?: Mood, habitId?: string) => Promise<void>;
@@ -103,6 +103,9 @@ type AppState = {
   selectSmartPrimaryGoal: () => Promise<string | null>;
   getTodaysPendingHabits: (goalId: string) => Promise<number>;
   getMostRecentlyActiveGoal: () => Promise<string | null>;
+  getTodaysScheduledHabits: (goalId: string) => Promise<HabitWithSchedule[]>;
+  getAllTodaysScheduledHabits: () => Promise<HabitWithSchedule[]>;
+  initializeScheduling: () => Promise<void>;
   
   // Conversation actions
   getGoalConversation: (goalId: string) => ConversationMessage[];
@@ -154,6 +157,10 @@ export const useAppStore = create<AppState>()(
         console.log('[hydrate] Starting database initialization...');
         await initializeDatabase();
         console.log('[hydrate] Database initialized successfully');
+        
+        console.log('[hydrate] Initializing habit scheduling...');
+        await migrateHabitsScheduling();
+        console.log('[hydrate] Habit scheduling initialized successfully');
 
         console.log('[hydrate] Loading goals...');
         const goals = await listGoals();
@@ -264,8 +271,8 @@ export const useAppStore = create<AppState>()(
       return goalId;
     },
 
-    addHabit: async (goalId, habit) => {
-      const habitId = await upsertHabit(goalId, habit);
+    addHabit: async (goalId, habit, schedule, enhancedData) => {
+      const habitId = await upsertHabit(goalId, habit, schedule, enhancedData);
       
       if (goalId) {
         // Refresh habits for this goal to get the new habit with ID
@@ -288,8 +295,8 @@ export const useAppStore = create<AppState>()(
       return habitId;
     },
 
-    addStandaloneHabit: async (habit) => {
-      const habitId = await upsertHabit(null, habit);
+    addStandaloneHabit: async (habit, schedule, enhancedData) => {
+      const habitId = await upsertHabit(null, habit, schedule, enhancedData);
       await get().refreshStandaloneHabits();
       return habitId;
     },
@@ -466,7 +473,7 @@ export const useAppStore = create<AppState>()(
       s.avatar.vitality = vitality;
     }),
 
-    getAvatarResponse: (context = 'general') => {
+    getAvatarResponse: (contextParam = 'general') => {
       const state = get();
       const hour = new Date().getHours();
       const timeOfDay: 'morning' | 'afternoon' | 'evening' | 'night' = 
@@ -633,8 +640,6 @@ export const useAppStore = create<AppState>()(
     getMostRecentlyActiveGoal: async () => {
       const { goalsWithIds, habitsWithIds } = get();
       const today = new Date();
-      let mostRecentGoalId = null;
-      let mostRecentTime = 0;
       
       // Look for the most recently completed habit across all goals
       for (const goal of goalsWithIds) {
@@ -652,7 +657,37 @@ export const useAppStore = create<AppState>()(
         }
       }
       
-      return mostRecentGoalId;
+      return null;
+    },
+
+    // Scheduling functions
+    initializeScheduling: async () => {
+      await migrateHabitsScheduling();
+    },
+
+    getTodaysScheduledHabits: async (goalId) => {
+      const allHabits = await listScheduledHabitsForGoal(goalId);
+      const todaysHabits = filterHabitsForToday(allHabits);
+      return sortHabitsByTime(todaysHabits);
+    },
+
+    getAllTodaysScheduledHabits: async () => {
+      const { goalsWithIds } = get();
+      const allScheduledHabits: HabitWithSchedule[] = [];
+      
+      // Get scheduled habits from all goals
+      for (const goal of goalsWithIds) {
+        const goalHabits = await listScheduledHabitsForGoal(goal.id);
+        allScheduledHabits.push(...goalHabits);
+      }
+      
+      // Get scheduled standalone habits
+      const standaloneHabits = await listScheduledStandaloneHabits();
+      allScheduledHabits.push(...standaloneHabits);
+      
+      // Filter for today and sort by time
+      const todaysHabits = filterHabitsForToday(allScheduledHabits);
+      return sortHabitsByTime(todaysHabits);
     },
 
     // Conversation actions

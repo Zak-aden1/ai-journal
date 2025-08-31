@@ -27,12 +27,12 @@ interface Goal {
   progress: number;
   totalHabits: number;
   completedHabits: number;
-  habits: Array<{
+  habits: {
     id: string;
     title: string;
     completed: boolean;
     streak: number;
-  }>;
+  }[];
   why?: string;
   obstacles?: string[];
   category: 'health' | 'learning' | 'career' | 'personal';

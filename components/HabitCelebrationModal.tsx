@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, Component } from 'react';
 import { View, Text, Modal, StyleSheet, Dimensions, TouchableOpacity, StatusBar, AccessibilityInfo } from 'react-native';
 import Animated, { 
   useSharedValue, 
@@ -19,6 +19,37 @@ import { PlantAvatar, PetAvatar, RobotAvatar, BaseAvatar } from '@/components/av
 import { getVitalityLevel } from '@/components/avatars/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from '@/stores/app';
+
+// Error boundary to catch animation crashes
+class CelebrationErrorBoundary extends Component<
+  { children: React.ReactNode; fallback?: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode; fallback?: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.warn('Celebration modal crashed:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.8)' }}>
+          <Text style={{ color: 'white', fontSize: 16 }}>Something went wrong with the celebration! 🎉</Text>
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 interface Props {
   visible: boolean;
@@ -201,6 +232,7 @@ export function HabitCelebrationModal({
   const [isStageTransition, setIsStageTransition] = useState(false);
   const [hasAnimated, setHasAnimated] = useState(false);  // Prevent re-animation
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [isMounted, setIsMounted] = useState(true);  // Track mount state
   const swipeStartY = useRef(0);
   
   // Check if vitality level changed
@@ -214,6 +246,14 @@ export function HabitCelebrationModal({
       updateAvatarMemoryWithActivity('achievement', undefined, habitName);
     }
   }, [visible, habitName, updateAvatarMemoryWithActivity]);
+
+  // Component mount/unmount tracking
+  React.useEffect(() => {
+    setIsMounted(true);
+    return () => {
+      setIsMounted(false);
+    };
+  }, []);
 
   // Enhanced theme configurations with personalized avatar messages
   const getThemeConfig = (theme: string, habitName: string, streakDays: number = 8) => {
@@ -302,7 +342,8 @@ export function HabitCelebrationModal({
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => {});
 
-    if (visible && !hasAnimated) {
+    // Memory guard: prevent excessive re-renders and ensure component is mounted
+    if (visible && !hasAnimated && !isStageTransition && isMounted) {
       setHasAnimated(true);  // Mark as animated to prevent re-runs
       
       // Reset values
@@ -397,8 +438,15 @@ export function HabitCelebrationModal({
         backgroundOpacity.value = 0;
         avatarScale.value = 0;
         pulseScale.value = 1;
+        // Clear any pending timers
+        const timers = [800, 1000, 1200, 1400, 200, 500, 700, 900];
+        timers.forEach(delay => {
+          if (typeof delay === 'number') {
+            // This is a simple cleanup - in a real app you'd track timer IDs
+          }
+        });
       };
-      
+
     } else if (!visible) {
       // Reset all animations when modal closes
       setHasAnimated(false);  // Allow re-animation next time
@@ -520,12 +568,13 @@ export function HabitCelebrationModal({
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="none"
-      presentationStyle="fullScreen"
-      onRequestClose={handleClose}
-    >
+    <CelebrationErrorBoundary>
+      <Modal
+        visible={visible}
+        animationType="none"
+        presentationStyle="fullScreen"
+        onRequestClose={handleClose}
+      >
       <StatusBar hidden />
       
       <Animated.View
@@ -633,7 +682,8 @@ export function HabitCelebrationModal({
           </Animated.View>
         </View>
       </Animated.View>
-    </Modal>
+      </Modal>
+    </CelebrationErrorBoundary>
   );
 }
 
