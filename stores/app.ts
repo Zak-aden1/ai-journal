@@ -78,6 +78,7 @@ type AppState = {
   addStandaloneHabit: (habit: string, schedule?: HabitSchedule, enhancedData?: EnhancedHabitData) => Promise<string>;
   updateHabitGoalAssignment: (habitId: string, goalId: string | null) => Promise<void>;
   deleteHabit: (habitId: string) => Promise<void>;
+  cleanupCorruptedHabits: () => Promise<number>;
   submitEntry: (text: string, mood?: Mood, habitId?: string) => Promise<void>;
   submitJournalEntry: (text: string, mood?: Mood, voiceRecordingUri?: string) => Promise<void>;
   setNextAction: (s: Suggestion | null) => void;
@@ -164,7 +165,7 @@ export const useAppStore = create<AppState>()(
 
         console.log('[hydrate] Loading goals...');
         const goals = await listGoals();
-        console.log(`[hydrate] Loaded ${goals.length} goals`);
+        console.log(`[hydrate] Loaded ${goals.length} goals:`, goals.map(g => `${g.title} (${g.id})`));
 
         console.log('[hydrate] Loading entries...');
         const entries = await listEntries();
@@ -248,11 +249,24 @@ export const useAppStore = create<AppState>()(
       }),
 
     addGoal: async (title) => {
+      console.log('[AppStore] Adding goal:', title);
       const { primaryGoalId } = get();
       const goalId = await upsertGoal(title);
+      console.log('[AppStore] Goal created in database with ID:', goalId);
+      
       set((s) => {
-        if (!s.goals.includes(title)) s.goals.push(title);
-        if (!primaryGoalId) s.primaryGoalId = goalId;
+        if (!s.goals.includes(title)) {
+          console.log('[AppStore] Adding goal to goals array:', title);
+          s.goals.push(title);
+        }
+        if (!s.goalsWithIds.find(g => g.id === goalId)) {
+          console.log('[AppStore] Adding goal to goalsWithIds:', { id: goalId, title });
+          s.goalsWithIds.push({ id: goalId, title });
+        }
+        if (!primaryGoalId) {
+          console.log('[AppStore] Setting as primary goal:', goalId);
+          s.primaryGoalId = goalId;
+        }
         
         // Track goal interaction in avatar memory
         const hour = new Date().getHours();
@@ -268,6 +282,7 @@ export const useAppStore = create<AppState>()(
           vitality: s.avatar.vitality,
         });
       });
+      console.log('[AppStore] Goal added successfully, current goals count:', get().goalsWithIds.length);
       return goalId;
     },
 
@@ -354,6 +369,56 @@ export const useAppStore = create<AppState>()(
       for (const goal of allGoals) {
         await get().refreshHabitsForGoal(goal.id);
       }
+    },
+    
+    cleanupCorruptedHabits: async () => {
+      console.log('[cleanupCorruptedHabits] Starting cleanup of corrupted habits...');
+      const allGoals = await listGoals();
+      let deletedCount = 0;
+      
+      for (const goal of allGoals) {
+        const habits = await listHabitsWithIdsByGoal(goal.id);
+        
+        for (const habit of habits) {
+          // Check if habit name looks corrupted
+          const isCorrupted = 
+            habit.title.length < 3 ||
+            /^(.)\1{4,}/.test(habit.title) || // 5+ repeated characters
+            /^[^a-zA-Z0-9\s]+$/.test(habit.title) || // Only special characters
+            habit.title.toLowerCase().includes('cssaccsa') ||
+            habit.title.toLowerCase().includes('iiuununununu');
+            
+          if (isCorrupted) {
+            console.log(`[cleanupCorruptedHabits] Deleting corrupted habit: "${habit.title}"`);
+            await dbDeleteHabit(habit.id);
+            deletedCount++;
+          }
+        }
+      }
+      
+      // Also check standalone habits
+      const standaloneHabits = await listStandaloneHabits();
+      for (const habit of standaloneHabits) {
+        const isCorrupted = 
+          habit.title.length < 3 ||
+          /^(.)\1{4,}/.test(habit.title) ||
+          /^[^a-zA-Z0-9\s]+$/.test(habit.title) ||
+          habit.title.toLowerCase().includes('cssaccsa') ||
+          habit.title.toLowerCase().includes('iiuununununu');
+          
+        if (isCorrupted) {
+          console.log(`[cleanupCorruptedHabits] Deleting corrupted standalone habit: "${habit.title}"`);
+          await dbDeleteHabit(habit.id);
+          deletedCount++;
+        }
+      }
+      
+      console.log(`[cleanupCorruptedHabits] Cleanup complete. Deleted ${deletedCount} corrupted habits.`);
+      
+      // Refresh data
+      await get().hydrate();
+      
+      return deletedCount;
     },
 
     submitEntry: async (text, mood, habitId) => {

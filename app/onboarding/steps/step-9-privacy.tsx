@@ -28,13 +28,13 @@ export default function PrivacyStep() {
   const AvatarComponent = getAvatarComponent(avatarType);
 
   return (
-    <OnboardingContainer step={6} gradient={['#fa709a', '#fee140']}>
+    <OnboardingContainer step={7} gradient={['#fa709a', '#fee140']}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Privacy & First Check-in</Text>
+          <Text style={styles.title}>Privacy Settings</Text>
           <Text style={styles.subtitle}>
-            Configure your privacy settings and share your first thoughts with {avatarName}
+            Configure your privacy preferences to complete your setup
           </Text>
         </View>
 
@@ -48,7 +48,7 @@ export default function PrivacyStep() {
           <View style={styles.avatarInfo}>
             <Text style={styles.avatarName}>{avatarName}</Text>
             <Text style={styles.avatarMessage}>
-              "Your privacy is important! Let's set up your preferences and then I'd love to hear how you're feeling about starting this journey! 🔒✨"
+              "Your privacy is important! Let's set up your preferences to complete your setup. We're almost ready to begin this journey together! 🔒✨"
             </Text>
           </View>
         </View>

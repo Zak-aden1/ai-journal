@@ -19,7 +19,7 @@ interface SmartSchedulingPanelProps {
   category: HabitCategory | null;
   currentSchedule?: HabitSchedule;
   onScheduleChange: (schedule: HabitSchedule) => void;
-  existingHabits?: Array<{ schedule: HabitSchedule; title: string }>;
+  existingHabits?: { schedule: HabitSchedule; title: string }[];
 }
 
 export function SmartSchedulingPanel({
@@ -37,7 +37,7 @@ export function SmartSchedulingPanel({
 
   const generateSmartSuggestions = useCallback((
     habitCategory: HabitCategory,
-    existingHabits: Array<{ schedule: HabitSchedule; title: string }>
+    existingHabits: { schedule: HabitSchedule; title: string }[]
   ): SmartSchedulingSuggestion[] => {
     const categoryData = HABIT_CATEGORIES.find(c => c.id === habitCategory);
     if (!categoryData) return [];

@@ -8,11 +8,12 @@ import ProblemSolutionStep from './intro/step-2-problem-solution';
 import AvatarIntroStep from './intro/step-3-avatar-intro';
 import InteractiveIntro from './intro/interactive-intro';
 
-// Main Onboarding Steps (6 steps)
+// Main Onboarding Steps (7 steps)
 import AvatarPersonalizationStep from './steps/step-3-avatar-personalization';
 import GoalDetailsStep from './steps/step-5-goal-details';
 import HabitSelectionStep from './steps/step-3-habit-selection';
 import YourWhyStep from './steps/step-7-your-why';
+import FirstCheckInStep from './steps/step-5-first-check-in';
 import InteractiveTutorialStep from './steps/step-8-interactive-tutorial';
 import PrivacyStep from './steps/step-9-privacy';
 
@@ -47,19 +48,21 @@ export default function OnboardingScreen() {
     }
   }
 
-  // Show main onboarding after intro is complete (6 streamlined steps)
+  // Show main onboarding after intro is complete (7 steps)
   switch (currentStep) {
     case 1:
       return <AvatarPersonalizationStep />;
     case 2:
       return <GoalDetailsStep />;
     case 3:
-      return <HabitSelectionStep />;
-    case 4:
       return <YourWhyStep />;
+      case 4:
+      return <HabitSelectionStep />;
     case 5:
-      return <InteractiveTutorialStep />;
+      return <FirstCheckInStep />;
     case 6:
+      return <InteractiveTutorialStep />;
+    case 7:
       return <PrivacyStep />;
     default:
       return <AvatarPersonalizationStep />;

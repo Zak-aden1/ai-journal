@@ -271,14 +271,15 @@ export const useOnboardingStore = create<OnboardingStore>()(
     
     canProceedFromStep: (step) => {
       const { data } = get();
-      // New 6-step flow: 1=Avatar Name, 2=Goal Details, 3=Habit Selection, 4=Your Why, 5=Tutorial, 6=Privacy
+      // 7-step flow: 1=Avatar Name, 2=Goal Details, 3=Your Why, 4=Habit Selection, 5=First Check-in, 6=Tutorial, 7=Privacy
       switch (step) {
         case 1: return data.avatarName.trim().length >= 2; // Avatar personalization
         case 2: return data.goalTitle.trim().length >= 3; // Goal details
-        case 3: return true; // Habit selection - optional, can always proceed
-        case 4: return data.deepWhy.trim().length >= 10; // Your why
-        case 5: return data.tutorialCompleted && data.firstHabitCompleted; // Tutorial
-        case 6: return data.firstMood !== null && data.firstEntry.trim().length > 0; // Privacy/First entry
+        case 3: return data.deepWhy.trim().length >= 10; // Your why
+        case 4: return true; // Habit selection - optional, can always proceed
+        case 5: return data.firstMood !== null && data.firstEntry.trim().length >= 10; // First check-in
+        case 6: return data.tutorialCompleted && data.firstHabitCompleted; // Tutorial
+        case 7: return true; // Privacy - final step
         default: return true;
       }
     }

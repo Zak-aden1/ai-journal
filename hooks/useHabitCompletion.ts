@@ -68,10 +68,8 @@ export const useHabitCompletion = (
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     
     try {
-      // For real habits, toggle in database
-      if (goalsWithIds.length > 0 && !habit.id.startsWith('habit-')) {
-        await useAppStore.getState().toggleHabitCompletion(habitId);
-      }
+      // Toggle habit completion in database
+      await useAppStore.getState().toggleHabitCompletion(habitId);
       
       setHoldingHabit(null);
       progressRef.setValue(0);

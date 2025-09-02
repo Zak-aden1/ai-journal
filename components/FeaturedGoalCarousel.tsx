@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated, PanResponder } from 'react-native';
 import { AvatarRenderer } from '@/components/avatars';
 import { useTheme } from '@/hooks/useTheme';
@@ -33,45 +33,73 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
     return primaryIndex >= 0 ? primaryIndex : 0;
   });
   
-  const translateX = useRef(new Animated.Value(0)).current;
-  const pan = useRef(new Animated.ValueXY()).current;
+  // Animation refs
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const panValue = useRef(new Animated.Value(0)).current;
+  
+  const navigateToGoal = useCallback((direction: 'left' | 'right') => {
+    if (goals.length <= 1) return;
+    
+    const newIndex = direction === 'left' 
+      ? (currentIndex - 1 + goals.length) % goals.length
+      : (currentIndex + 1) % goals.length;
+    
+    // Animate the transition
+    const targetValue = direction === 'left' ? 300 : -300;
+    
+    Animated.sequence([
+      Animated.timing(panValue, {
+        toValue: targetValue,
+        duration: 200,
+        useNativeDriver: false,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 1,
+        duration: 0,
+        useNativeDriver: false,
+      }),
+    ]).start(() => {
+      setCurrentIndex(newIndex);
+      const newGoal = goals[newIndex];
+      onGoalPress?.(newGoal.id);
+      
+      // Reset animations for next transition
+      panValue.setValue(0);
+      slideAnim.setValue(0);
+    });
+  }, [currentIndex, goals, onGoalPress, panValue, slideAnim]);
 
-  // Pan gesture handler
-  const panResponder = PanResponder.create({
-    onMoveShouldSetPanResponder: (evt, gestureState) => {
-      // Only respond to horizontal swipes
-      return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
+  // Safer PanResponder implementation
+  const panResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      return Math.abs(gestureState.dx) > 20 && Math.abs(gestureState.dy) < 80;
     },
     onPanResponderGrant: () => {
-      pan.setOffset({
-        x: pan.x._value,
-        y: pan.y._value,
-      });
+      panValue.setOffset(panValue._value);
+      panValue.setValue(0);
     },
-    onPanResponderMove: Animated.event(
-      [null, { dx: pan.x, dy: pan.y }],
-      { useNativeDriver: false }
-    ),
-    onPanResponderRelease: (evt, gestureState) => {
-      pan.flattenOffset();
+    onPanResponderMove: (_, gestureState) => {
+      // Limit the pan distance to prevent extreme values
+      const clampedDx = Math.max(-150, Math.min(150, gestureState.dx));
+      panValue.setValue(clampedDx);
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      panValue.flattenOffset();
       
-      const swipeThreshold = 50;
-      
-      if (gestureState.dx > swipeThreshold && goals.length > 1) {
-        // Swipe right (go to previous goal)
-        navigateToGoal('left');
-      } else if (gestureState.dx < -swipeThreshold && goals.length > 1) {
-        // Swipe left (go to next goal)
-        navigateToGoal('right');
+      const threshold = 50;
+      if (Math.abs(gestureState.dx) > threshold && goals.length > 1) {
+        const direction = gestureState.dx > 0 ? 'left' : 'right';
+        navigateToGoal(direction);
+      } else {
+        // Snap back to center
+        Animated.spring(panValue, {
+          toValue: 0,
+          useNativeDriver: false,
+        }).start();
       }
-      
-      // Reset pan position
-      Animated.spring(pan, {
-        toValue: { x: 0, y: 0 },
-        useNativeDriver: false,
-      }).start();
     },
-  });
+  }), [goals.length, navigateToGoal, panValue]);
+  
 
   const currentGoal = goals[currentIndex];
   
@@ -108,34 +136,6 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
   const vitalityColor = getVitalityColor(avatar.vitality);
   const healthStatus = getHealthStatus(avatar.vitality);
   const progressPercentage = currentGoal.totalHabits > 0 ? Math.round((currentGoal.completedHabits / currentGoal.totalHabits) * 100) : 0;
-
-  const navigateToGoal = (direction: 'left' | 'right') => {
-    let newIndex: number;
-    
-    if (direction === 'left') {
-      newIndex = currentIndex > 0 ? currentIndex - 1 : goals.length - 1;
-    } else {
-      newIndex = currentIndex < goals.length - 1 ? currentIndex + 1 : 0;
-    }
-    
-    setCurrentIndex(newIndex);
-    const newGoal = goals[newIndex];
-    onGoalPress?.(newGoal.id);
-
-    // Animate the transition
-    Animated.sequence([
-      Animated.timing(translateX, {
-        toValue: direction === 'left' ? 20 : -20,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateX, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
 
   const getContextualGreeting = () => {
     const hour = new Date().getHours();
@@ -176,10 +176,9 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
             styles.goalCard,
             { 
               borderColor: vitalityColor + '30',
-              transform: [
-                { translateX },
-                { translateX: pan.x }
-              ]
+              transform: [{
+                translateX: panValue
+              }]
             }
           ]}
         >
@@ -215,7 +214,7 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
               
               {/* Progress Section */}
               <View style={styles.progressSection}>
-                <Text style={styles.progressLabel}>Today's Progress</Text>
+                <Text style={styles.progressLabel}>Today&apos;s Progress</Text>
                 <View style={styles.progressRow}>
                   <Text style={styles.progressStats}>
                     {currentGoal.completedHabits}/{currentGoal.totalHabits} habits

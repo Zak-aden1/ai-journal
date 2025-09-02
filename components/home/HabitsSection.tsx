@@ -39,6 +39,20 @@ export function HabitsSection({
 
   const recommendedHabit = habits.find(h => h.id === recommendedHabitId && !h.completed);
 
+  // Recommend-first sorting: incomplete recommended → other incomplete → completed
+  const sortedHabits = React.useMemo(() => {
+    const copy = [...habits];
+    return copy.sort((a, b) => {
+      const aRecommended = !a.completed && a.id === recommendedHabitId ? 1 : 0;
+      const bRecommended = !b.completed && b.id === recommendedHabitId ? 1 : 0;
+      if (aRecommended !== bRecommended) return bRecommended - aRecommended;
+      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+      // Then by time if available ("HH:MM" or "Anytime")
+      const timeVal = (t: string) => (t && /^\d{2}:\d{2}$/.test(t) ? parseInt(t.slice(0,2)) * 60 + parseInt(t.slice(3)) : 24*60);
+      return timeVal(a.time) - timeVal(b.time);
+    });
+  }, [habits, recommendedHabitId]);
+
   return (
     <View style={styles.habitsSection}>
       <View style={styles.habitsSectionHeader}>
@@ -73,7 +87,7 @@ export function HabitsSection({
       )}
       
       <View style={styles.habitsList}>
-        {habits.map((habit) => (
+        {sortedHabits.map((habit) => (
           <TouchableOpacity
             key={habit.id}
             style={[

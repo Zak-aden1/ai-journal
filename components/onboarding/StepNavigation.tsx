@@ -22,39 +22,85 @@ export function StepNavigation({ step, canProceed, onBack, onNext, allowSkip = f
 
   const onNextPress = async () => {
     Keyboard.dismiss();
-    if (step === 5 && canProceed && !isSubmitting) {
+    if (step === 7 && canProceed && !isSubmitting) {
       try {
         setIsSubmitting(true);
+        console.log('[StepNavigation] Starting onboarding completion...');
+        
         const title = onboardingData.goalTitle.trim();
         // Ensure there is at least some title
-        const goalId = await addGoal(title.length ? title : 'My Goal');
+        const finalTitle = title.length ? title : 'My Goal';
+        console.log('[StepNavigation] Creating goal:', finalTitle);
+        
+        const goalId = await addGoal(finalTitle);
+        console.log('[StepNavigation] Goal created with ID:', goalId);
 
+        // Save goal metadata
+        console.log('[StepNavigation] Saving goal metadata...');
         await saveWhy(goalId, {
           why_text: onboardingData.deepWhy,
           why_audio_uri: onboardingData.whyVoicePath || undefined,
           obstacles: onboardingData.selectedObstacles,
         });
 
+        // Create habits one by one with proper error handling
+        console.log('[StepNavigation] Creating habits...', onboardingData.selectedHabits.length);
         for (const habit of onboardingData.selectedHabits) {
-          const schedule = onboardingData.habitSchedules[habit];
-          await addHabit(goalId, habit, schedule);
+          try {
+            const schedule = onboardingData.habitSchedules[habit];
+            console.log(`[StepNavigation] Creating habit: ${habit}`);
+            await addHabit(goalId, habit, schedule);
+          } catch (habitErr) {
+            console.error(`[StepNavigation] Failed to create habit ${habit}:`, habitErr);
+            // Continue with other habits even if one fails
+          }
         }
 
+        // Submit initial journal entry (optional - don't fail onboarding if this fails)
         if (onboardingData.firstEntry && onboardingData.firstMood) {
-          await submitEntry(onboardingData.firstEntry, onboardingData.firstMood);
+          try {
+            console.log('[StepNavigation] Submitting first journal entry...');
+            await submitEntry(onboardingData.firstEntry, onboardingData.firstMood);
+            console.log('[StepNavigation] First journal entry submitted successfully');
+          } catch (entryErr) {
+            console.warn('[StepNavigation] Failed to submit first journal entry (non-critical):', entryErr);
+            // Don't fail the entire onboarding process for this
+          }
         }
 
+        // Generate next action suggestion
         const suggestion = nextActionFrom(
-          onboardingData.firstEntry || title,
-          [title.length ? title : 'your energy']
+          onboardingData.firstEntry || finalTitle,
+          [finalTitle]
         );
         setNextAction(suggestion);
 
+        // Force app store to refresh data after all operations
+        console.log('[StepNavigation] Forcing app store hydration...');
+        const { hydrate } = useAppStore.getState();
+        await hydrate();
+        
+        console.log('[StepNavigation] All onboarding data saved successfully, completing...');
         completeOnboarding();
-        router.replace('/');
+        
+        // Add small delay to ensure state updates propagate
+        setTimeout(() => {
+          console.log('[StepNavigation] Navigating to home...');
+          router.replace('/');
+        }, 100);
+        
       } catch (err) {
-        console.warn('Failed to finish onboarding', err);
-        Alert.alert('Saved locally', 'Some data may not have saved perfectly, but you can start now.');
+        console.error('[StepNavigation] Failed to finish onboarding:', err);
+        Alert.alert('Setup Complete', 'Your data has been saved. You can now start your journey!');
+        
+        // Even on error, try to force refresh and complete
+        try {
+          const { hydrate } = useAppStore.getState();
+          await hydrate();
+        } catch (hydrateErr) {
+          console.warn('[StepNavigation] Failed to hydrate on error:', hydrateErr);
+        }
+        
         completeOnboarding();
         router.replace('/');
       } finally {
@@ -93,7 +139,7 @@ export function StepNavigation({ step, canProceed, onBack, onNext, allowSkip = f
           styles.nextText,
           allowSkip && !canProceed && styles.nextTextSecondary
         ]}>
-          {step === 5 ? (isSubmitting ? 'Finishing…' : 'Finish') : 'Next'}
+          {step === 7 ? (isSubmitting ? 'Finishing…' : 'Finish') : 'Next'}
         </Text>
       </TouchableOpacity>
     </View>

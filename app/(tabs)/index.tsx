@@ -20,6 +20,8 @@ import { useToast } from '@/hooks/useToast';
 import { useAppStore } from '@/stores/app';
 import { track } from '@/utils/analytics';
 import { isHabitCompletedOnDate } from '@/lib/db';
+import { habitAnalytics } from '@/services/analytics/HabitAnalyticsService';
+import { streakPredictor } from '@/services/analytics/StreakPredictionEngine';
 
 // Helper function to get appropriate emoji for habit
 const getHabitEmoji = (habitTitle: string) => {
@@ -75,15 +77,102 @@ export default function HomeScreen() {
   const progressValue = useSharedValue(0);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const styles = createStyles(theme);
+  const [insights, setInsights] = useState<{ bestTime?: string; streakRisk?: 'low' | 'medium' | 'high'; tip?: string } | null>(null);
   
-  // Load data (real + dummy for demonstration)
+  // Helper to refresh primary goal context and today's habits when user changes focus
+  const refreshPrimaryGoalData = async (goalId: string) => {
+    try {
+      // Update primary goal in component state
+      const newPrimaryGoal = goalsWithIds.find(g => g.id === goalId) || null;
+      setPrimaryGoalState(newPrimaryGoal);
+
+      // Fetch today's scheduled habits for selected goal + standalone scheduled
+      const goalScheduledHabits = await getTodaysScheduledHabits(goalId);
+      const allTodaysHabits = await getAllTodaysScheduledHabits();
+      const standaloneScheduledHabits = allTodaysHabits.filter(h => !h.goalId);
+      const allScheduledHabits = [...goalScheduledHabits, ...standaloneScheduledHabits];
+
+      const habitsWithStats = await Promise.all(
+        allScheduledHabits.map(async (habit) => {
+          try {
+            const streak = await getHabitStreak(habit.id);
+            const isCompleted = await isHabitCompletedOnDate(habit.id);
+            return {
+              id: habit.id,
+              name: habit.title,
+              completed: isCompleted,
+              streak: streak.current,
+              description: `Keep up your ${habit.title.toLowerCase()} routine`,
+              time: habit.schedule?.specificTime || 'Anytime',
+              difficulty: 'medium' as const,
+              emoji: getHabitEmoji(habit.title),
+            };
+          } catch {
+            return {
+              id: habit.id,
+              name: habit.title,
+              completed: false,
+              streak: 0,
+              description: `Keep up your ${habit.title.toLowerCase()} routine`,
+              time: habit.schedule?.specificTime || 'Anytime',
+              difficulty: 'medium' as const,
+              emoji: getHabitEmoji(habit.title),
+            };
+          }
+        })
+      );
+      setPrimaryGoalHabits(habitsWithStats);
+
+      const completedCount = habitsWithStats.filter(h => h.completed).length;
+      setCompletedTodayCount(completedCount);
+
+      const totalHabits = habitsWithStats.length;
+      const completionRate = totalHabits > 0 ? completedCount / totalHabits : 0;
+      updateAvatarVitality(Math.round(40 + (60 * completionRate)));
+
+      // Refresh secondary goals snapshot
+      const secondaryGoalsData = await Promise.all(
+        goalsWithIds
+          .filter(goal => goal.id !== goalId)
+          .map(async (goal) => {
+            const habits = habitsWithIds[goal.id] || [];
+            const pendingCount = await getTodaysPendingHabits(goal.id);
+            return {
+              id: goal.id,
+              title: goal.title,
+              habitCount: habits.length,
+              completedToday: habits.length - pendingCount,
+            };
+          })
+      );
+      setSecondaryGoals(secondaryGoalsData);
+    } catch (error) {
+      console.warn('Failed to refresh primary goal data:', error);
+    }
+  };
+  
+  // Load data (real only; show empty state when no data)
   useEffect(() => {
     if (!isHydrated) return;
     
     const loadData = async () => {
       try {
+        console.log('[HomeScreen] Loading data, goals available:', goalsWithIds.length);
+        
+        // If we have no goals yet, try to force a fresh hydration 
+        // (this handles the case where user just completed onboarding)
+        if (goalsWithIds.length === 0) {
+          console.log('[HomeScreen] No goals found, forcing fresh hydration...');
+          const { hydrate } = useAppStore.getState();
+          await hydrate();
+          // Check again after forced hydration
+          const freshGoals = useAppStore.getState().goalsWithIds;
+          console.log('[HomeScreen] After forced hydration, goals available:', freshGoals.length);
+        }
+        
         // First try to load real data
         const primaryGoalId = await selectSmartPrimaryGoal();
+        console.log('[HomeScreen] Selected primary goal ID:', primaryGoalId);
         
         if (primaryGoalId && goalsWithIds.length > 0) {
           // Use real data if available
@@ -156,77 +245,13 @@ export default function HomeScreen() {
           );
           setSecondaryGoals(secondaryGoalsData);
         } else {
-          // Use dummy data for demonstration
-          const dummyPrimaryGoal = {
-            id: 'demo-fitness',
-            title: 'Run a 5K Marathon'
-          };
-          setPrimaryGoalState(dummyPrimaryGoal);
-          
-          const dummyHabits = [
-            {
-              id: 'habit-1',
-              name: 'Morning Run',
-              description: '30 minutes of outdoor running',
-              time: '07:00',
-              completed: false,
-              streak: 12,
-              difficulty: 'hard' as const,
-              emoji: '🏃‍♀️',
-            },
-            {
-              id: 'habit-2', 
-              name: 'Stretching',
-              description: '10 minutes of post-workout stretching',
-              time: '19:00',
-              completed: true,
-              streak: 8,
-              difficulty: 'easy' as const,
-              emoji: '🧘‍♀️',
-            },
-            {
-              id: 'habit-3',
-              name: 'Hydration Check',
-              description: 'Drink 2 liters of water throughout the day',
-              time: '12:00',
-              completed: false,
-              streak: 5,
-              difficulty: 'medium' as const,
-              emoji: '💧',
-            }
-          ];
-          setPrimaryGoalHabits(dummyHabits);
-          
-          const completedCount = dummyHabits.filter(h => h.completed).length;
-          setCompletedTodayCount(completedCount);
-          
-          // Set vitality based on completion rate
-          const completionRate = completedCount / dummyHabits.length;
-          const newVitality = Math.round(40 + (60 * completionRate));
-          updateAvatarVitality(newVitality);
-          
-          // Dummy secondary goals
-          const dummySecondaryGoals = [
-            {
-              id: 'demo-mindfulness',
-              title: 'Daily Mindfulness',
-              habitCount: 2,
-              completedToday: 1,
-            },
-            {
-              id: 'demo-learning',
-              title: 'Learn Spanish',
-              habitCount: 3,
-              completedToday: 0,
-            },
-            {
-              id: 'demo-creativity',
-              title: 'Creative Writing',
-              habitCount: 1,
-              completedToday: 1,
-            }
-          ];
-          setSecondaryGoals(dummySecondaryGoals);
+          // No real data yet – reset to empty to trigger clean empty state UI
+          console.log('[HomeScreen] No goals found after all attempts, showing empty state');
+          setPrimaryGoalState(null);
+          setPrimaryGoalHabits([]);
+          setSecondaryGoals([]);
+          setCompletedTodayCount(0);
+          updateAvatarVitality(40); // neutral baseline vitality
         }
       } catch (error) {
         console.warn('Error loading data:', error);
@@ -282,6 +307,45 @@ export default function HomeScreen() {
     return primaryGoalHabits.find(h => !h.completed) || null;
   };
   const recommendedHabit = getRecommendedHabit();
+  
+  // Insights chips: best time, streak risk, and a quick tip based on analytics
+  useEffect(() => {
+    const calcInsights = async () => {
+      try {
+        const targetHabit = recommendedHabit || primaryGoalHabits.find(h => !h.completed) || primaryGoalHabits[0];
+        if (!targetHabit) {
+          setInsights(null);
+          return;
+        }
+        const [pattern, forecast] = await Promise.all([
+          habitAnalytics.analyzeHabitTiming(targetHabit.id),
+          streakPredictor.generateStreakForecast(targetHabit.id),
+        ]);
+        const fmtHour = (h: number) => {
+          const hr = ((h + 11) % 12) + 1; const ampm = h < 12 ? 'am' : 'pm';
+          return `${hr}${ampm}`;
+        };
+        const best = pattern.optimalHours.length >= 2 
+          ? `${fmtHour(pattern.optimalHours[0])}–${fmtHour(pattern.optimalHours[1])}`
+          : pattern.optimalHours.length === 1 ? fmtHour(pattern.optimalHours[0]) : '—';
+        const nowHour = new Date().getHours();
+        const inWindow = pattern.optimalHours.includes(nowHour);
+        const nextOptimal = (() => {
+          const hours = [...pattern.optimalHours].sort((a,b)=>a-b);
+          const next = hours.find(h => h > nowHour) ?? hours[0];
+          return typeof next === 'number' ? fmtHour(next) : undefined;
+        })();
+        const tip = inWindow
+          ? 'You’re in a good window—try a quick win'
+          : nextOptimal ? `Next good window: ${nextOptimal}` : 'Aim for consistency over perfection';
+        setInsights({ bestTime: best, streakRisk: forecast.riskProfile, tip });
+      } catch {
+        // Fail silent – chips are optional UI sugar
+        setInsights(null);
+      }
+    };
+    calcInsights();
+  }, [recommendedHabit?.id, primaryGoalHabits.map(h => `${h.id}:${h.completed}`).join(',')]);
   
   // Smart toast notifications based on real progress
   useEffect(() => {
@@ -357,19 +421,17 @@ export default function HomeScreen() {
     
     const habit = primaryGoalHabits.find(h => h.id === habitId);
     if (habit) {
-      // For real habits, toggle in database
-      if (goalsWithIds.length > 0 && habit.id.startsWith('habit-')) {
-        try {
-          await toggleHabitCompletion(habitId);
-        } catch (error) {
-          console.warn('Error toggling habit completion:', error);
-        }
+      // Toggle habit completion in database
+      try {
+        await toggleHabitCompletion(habitId);
+      } catch (error) {
+        console.warn('Error toggling habit completion:', error);
       }
       
-                   setPendingHabit({ ...habit, id: habitId });
-             setSheet(true);
-             setHoldingHabit(null);
-             progressValue.value = 0;
+      setPendingHabit({ ...habit, id: habitId });
+      setSheet(true);
+      setHoldingHabit(null);
+      progressValue.value = 0;
       
       // Update local state to show completion
       setPrimaryGoalHabits(prev => 
@@ -380,8 +442,8 @@ export default function HomeScreen() {
 
   const handleMicroReflection = async (text: string, mood: string) => {
     try {
-      // For real habits, save to database
-      if (goalsWithIds.length > 0 && pendingHabit?.id && !pendingHabit.id.startsWith('habit-')) {
+      // Save micro-reflection to database
+      if (pendingHabit?.id) {
         await useAppStore.getState().submitEntry(text, mood as any, pendingHabit.id);
       }
       
@@ -391,20 +453,13 @@ export default function HomeScreen() {
       if (pendingHabit) {
         let streakValue = pendingHabit.streak || 0;
         
-        // For real habits, get actual streak
-        if (goalsWithIds.length > 0 && !pendingHabit.id.startsWith('habit-')) {
-          try {
-            const updatedStreak = await getHabitStreak(pendingHabit.id);
-            streakValue = updatedStreak.current;
-          } catch (error) {
-            console.warn('Could not get habit streak:', error);
-          }
-        } else {
-          // For dummy habits, increment streak
-          streakValue = pendingHabit.streak + 1;
-          setPrimaryGoalHabits(prev => 
-            prev.map(h => h.id === pendingHabit.id ? { ...h, streak: streakValue } : h)
-          );
+        // Get actual streak from database
+        try {
+          const updatedStreak = await getHabitStreak(pendingHabit.id);
+          streakValue = updatedStreak.current;
+        } catch (error) {
+          console.warn('Could not get habit streak:', error);
+          streakValue = Math.min(pendingHabit.streak + 1, 365);
         }
         
         // Simulate vitality changes for celebration
@@ -475,16 +530,36 @@ export default function HomeScreen() {
           contextualGreeting={getContextualGreeting()}
           onCreateGoal={() => setShowCreateGoal(true)}
         />
+
+        {/* Insights Chips */}
+        {insights && (
+          <View style={styles.insightsRow}>
+            {insights.bestTime && (
+              <View style={styles.chip}>
+                <Text style={styles.chipEmoji}>🕒</Text>
+                <Text style={styles.chipText}>Best time: {insights.bestTime}</Text>
+              </View>
+            )}
+            {insights.streakRisk && (
+              <View style={[styles.chip, insights.streakRisk === 'high' ? styles.chipWarn : insights.streakRisk === 'medium' ? styles.chipInfo : styles.chipOk]}>
+                <Text style={styles.chipEmoji}>🛡️</Text>
+                <Text style={styles.chipText}>Streak: {insights.streakRisk}</Text>
+              </View>
+            )}
+            {insights.tip && (
+              <View style={styles.chip}>
+                <Text style={styles.chipEmoji}>💡</Text>
+                <Text style={styles.chipText}>{insights.tip}</Text>
+              </View>
+            )}
+          </View>
+        )}
         
         {/* Progress Dashboard */}
         <ProgressDashboard 
-          onGoalPress={(goalId) => {
+          onGoalPress={async (goalId) => {
             setPrimaryGoal(goalId);
-            // Refresh the primary goal state
-            const newPrimaryGoal = goalsWithIds.find(g => g.id === goalId);
-            if (newPrimaryGoal) {
-              setPrimaryGoalState(newPrimaryGoal);
-            }
+            await refreshPrimaryGoalData(goalId);
           }}
           onAnalyticsPress={() => {
             // Navigate to analytics tab - would need navigation context in real implementation
@@ -525,13 +600,9 @@ export default function HomeScreen() {
               }] : []
             }
             primaryGoalId={primaryGoal?.id || null}
-            onGoalPress={(goalId) => {
+            onGoalPress={async (goalId) => {
               setPrimaryGoal(goalId);
-              // Refresh the primary goal state
-              const newPrimaryGoal = goalsWithIds.find(g => g.id === goalId);
-              if (newPrimaryGoal) {
-                setPrimaryGoalState(newPrimaryGoal);
-              }
+              await refreshPrimaryGoalData(goalId);
             }}
           />
         )}
@@ -548,6 +619,19 @@ export default function HomeScreen() {
           onHabitHoldStart={handleHabitHoldStart}
           onHabitHoldEnd={handleHabitHoldEnd}
         />
+
+        {/* Empty state for when a primary goal is set but no habits are scheduled today */}
+        {primaryGoal && primaryGoalHabits.length === 0 && (
+          <View style={styles.emptyTodayCard}>
+            <Text style={styles.emptyTitle}>No habits scheduled today</Text>
+            <Text style={styles.emptySubtitle}>Add a quick habit or adjust schedules to keep momentum.</Text>
+            <View style={styles.emptyActions}>
+              <TouchableOpacity style={styles.emptyPrimaryBtn} onPress={() => setShowHabitCreation(true)}>
+                <Text style={styles.emptyPrimaryText}>+ Add Habit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Secondary Goals - Collapsible */}
         <ProgressOverview 
@@ -589,6 +673,9 @@ export default function HomeScreen() {
         {!isHydrated && (
           <View style={styles.section}>
             <Text style={styles.dataLabel}>Setting up your personalized experience...</Text>
+            <Text style={styles.dataSubtitle}>
+              Loading your goals, habits, and progress data...
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -667,6 +754,28 @@ const createStyles = (theme: any) => StyleSheet.create({
     flex: 1,
     paddingHorizontal: theme.spacing.lg,
   },
+  insightsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.md,
+    paddingHorizontal: 2,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: theme.colors.background.secondary,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+  },
+  chipEmoji: { fontSize: 12, marginRight: 6 },
+  chipText: { fontSize: 12, color: theme.colors.text.secondary, fontWeight: '600' },
+  chipWarn: { borderColor: theme.colors.status.warning || '#f59e0b' },
+  chipInfo: { borderColor: theme.colors.primary },
+  chipOk: { borderColor: theme.colors.status.success || '#22c55e' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -884,6 +993,33 @@ const createStyles = (theme: any) => StyleSheet.create({
   habitsSection: {
     marginBottom: theme.spacing.xl,
   },
+  emptyTodayCard: {
+    backgroundColor: theme.colors.background.secondary,
+    borderRadius: 16,
+    padding: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    marginBottom: theme.spacing.lg,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginBottom: 4,
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.md,
+  },
+  emptyActions: { flexDirection: 'row', gap: theme.spacing.sm },
+  emptyPrimaryBtn: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  emptyPrimaryText: { color: 'white', fontWeight: '700' },
   habitsSectionHeader: {
     marginBottom: theme.spacing.lg,
   },

@@ -14,7 +14,7 @@ interface TimeRangeSelectorProps {
   compact?: boolean;
 }
 
-const TIME_PRESETS: Array<{ label: string; range: TimeRange; emoji: string }> = [
+const TIME_PRESETS: { label: string; range: TimeRange; emoji: string }[] = [
   { label: 'Early Morning', range: { start: '05:00', end: '07:00' }, emoji: '🌅' },
   { label: 'Morning', range: { start: '07:00', end: '10:00' }, emoji: '☀️' },
   { label: 'Mid-Morning', range: { start: '09:00', end: '11:00' }, emoji: '🌤️' },

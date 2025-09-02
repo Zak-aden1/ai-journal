@@ -25,7 +25,7 @@ export default function YourWhyStep() {
   const AvatarComponent = getAvatarComponent(avatarType);
 
   return (
-    <OnboardingContainer step={4} gradient={['#4facfe', '#00f2fe']}>
+    <OnboardingContainer step={3} gradient={['#4facfe', '#00f2fe']}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>

@@ -106,6 +106,10 @@ export default function GoalDetailsStep() {
                 goalTitle.length > 0 && styles.inputValid
               ]}
               maxLength={100}
+              autoCorrect={false}
+              autoCapitalize="sentences"
+              autoComplete="off"
+              spellCheck={false}
             />
             <Text style={styles.characterCount}>{goalTitle.length}/100</Text>
           </View>

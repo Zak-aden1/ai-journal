@@ -13,7 +13,7 @@ interface Props {
   allowSkip?: boolean;
 }
 
-export function OnboardingContainer({ children, step, gradient, totalSteps = 6, allowSkip = false }: Props) {
+export function OnboardingContainer({ children, step, gradient, totalSteps = 7, allowSkip = false }: Props) {
   const canProceed = useOnboardingStore((s) => s.canProceedFromStep(step));
   const setStep = useOnboardingStore((s) => s.setStep);
 

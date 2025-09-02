@@ -28,9 +28,21 @@ export default function HabitSelectionStep() {
 
   const addCustomHabit = () => {
     const habit = customHabit.trim();
-    if (habit && !data.selectedHabits.includes(habit)) {
+    
+    // Validate habit input to prevent corrupted/dummy habits
+    const isValidHabit = habit && 
+      habit.length >= 3 && 
+      habit.length <= 80 &&
+      !/^(.)\1{4,}/.test(habit) && // Reject strings with 5+ repeated characters
+      !/^[^a-zA-Z0-9\s]+$/.test(habit) && // Must contain some letters/numbers
+      !data.selectedHabits.includes(habit);
+    
+    if (isValidHabit) {
       addHabit(habit);
       setCustomHabit('');
+    } else if (habit && habit.length < 3) {
+      // Optional: Show feedback for too-short habits
+      console.warn('Habit name too short');
     }
   };
 
@@ -79,7 +91,7 @@ export default function HabitSelectionStep() {
   const canContinue = data.goalTitle.trim().length >= 3; // Basic validation
 
   return (
-    <OnboardingContainer step={3} gradient={['#667eea', '#764ba2']}>
+    <OnboardingContainer step={4} gradient={['#667eea', '#764ba2']}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         <View style={styles.header as any}>
           <Text style={styles.title as any}>Add some habits</Text>
@@ -127,6 +139,10 @@ export default function HabitSelectionStep() {
                 onChangeText={setCustomHabit}
                 maxLength={80}
                 onSubmitEditing={addCustomHabit}
+                autoCorrect={false}
+                autoCapitalize="sentences"
+                autoComplete="off"
+                spellCheck={false}
               />
               <TouchableOpacity 
                 style={styles.addButton as any}
