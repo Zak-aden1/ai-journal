@@ -22,11 +22,14 @@ interface SmartSchedulingPanelProps {
   existingHabits?: { schedule: HabitSchedule; title: string }[];
 }
 
+// Stable empty fallback to avoid effect loops
+const EMPTY_HABITS: ReadonlyArray<{ schedule: HabitSchedule; title: string }> = Object.freeze([]);
+
 export function SmartSchedulingPanel({
   category,
   currentSchedule,
   onScheduleChange,
-  existingHabits = []
+  existingHabits,
 }: SmartSchedulingPanelProps) {
   const { theme } = useTheme();
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<string | null>(null);
@@ -155,7 +158,10 @@ export function SmartSchedulingPanel({
   // Generate smart suggestions based on category and existing habits
   useEffect(() => {
     if (category) {
-      const generatedSuggestions = generateSmartSuggestions(category, existingHabits);
+      const inputHabits = (existingHabits && existingHabits.length > 0)
+        ? existingHabits
+        : (EMPTY_HABITS as { schedule: HabitSchedule; title: string }[]);
+      const generatedSuggestions = generateSmartSuggestions(category, inputHabits);
       setSuggestions(generatedSuggestions);
     }
   }, [category, existingHabits, generateSmartSuggestions]);

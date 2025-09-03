@@ -535,7 +535,10 @@ export const useAppStore = create<AppState>()(
     }),
 
     updateAvatarVitality: (vitality) => set((s) => {
-      s.avatar.vitality = vitality;
+      // Prevent unnecessary state churn if unchanged
+      if (s.avatar.vitality !== vitality) {
+        s.avatar.vitality = vitality;
+      }
     }),
 
     getAvatarResponse: (contextParam = 'general') => {
@@ -782,5 +785,4 @@ export const useAppStore = create<AppState>()(
 export function isOnboardedSelector(state: AppState): boolean {
   return Boolean(state.primaryGoalId);
 }
-
 

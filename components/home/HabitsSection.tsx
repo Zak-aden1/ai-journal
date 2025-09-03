@@ -53,6 +53,14 @@ export function HabitsSection({
     });
   }, [habits, recommendedHabitId]);
 
+  // Animated ring style driven by shared progress value
+  const ringStyle = useAnimatedStyle(() => {
+    const deg = interpolate(progressValue.value, [0, 1], [0, 360]);
+    return {
+      transform: [{ rotate: `${deg}deg` }],
+    };
+  }, [progressValue]);
+
   return (
     <View style={styles.habitsSection}>
       <View style={styles.habitsSectionHeader}>
@@ -139,16 +147,7 @@ export function HabitsSection({
               <Animated.View style={styles.habitCheckButton}>
                 {holdingHabitId === habit.id ? (
                   <>
-                    <Animated.View
-                      style={[
-                        styles.progressRing,
-                        {
-                          transform: [{
-                            rotate: `${interpolate(progressValue.value, [0, 1], [0, 360])}deg`
-                          }]
-                        }
-                      ]}
-                    />
+                    <Animated.View style={[styles.progressRing, ringStyle]} />
                     <View style={styles.habitCheckIcon} />
                   </>
                 ) : (

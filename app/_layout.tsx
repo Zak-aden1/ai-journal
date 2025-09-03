@@ -9,6 +9,7 @@ import { useFonts } from 'expo-font';
 import { useAppStore } from '@/stores/app';
 import { useOnboardingStore } from '@/stores/onboarding';
 import { useTheme } from '@/hooks/useTheme';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,27 +35,29 @@ export default function RootLayout() {
   console.log('isOnboarded', isOnboarded, 'pathname', pathname);
   
   // Redirect to onboarding if not completed and not already there
-  if (!isOnboarded && !pathname?.startsWith('/onboarding')) {
-    return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
-          <Redirect href="/onboarding" />
-        </ThemeProvider>
-      </GestureHandlerRootView>
-    );
-  }
+  // if (!isOnboarded && !pathname?.startsWith('/onboarding')) {
+  //   return (
+  //     <GestureHandlerRootView style={{ flex: 1 }}>
+  //       <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+  //         <Redirect href="/onboarding" />
+  //       </ThemeProvider>
+  //     </GestureHandlerRootView>
+  //   );
+  // }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="+not-found" />
-          <Stack.Screen name="onboarding/index" options={{ headerShown: false }} />
-          <Stack.Screen name="modals/weekly-review" options={{ presentation: 'modal', title: 'Weekly Review' }} />
-          <Stack.Screen name="modals/goal-detail" options={{ presentation: 'modal', title: 'Goal Details', animation: 'slide_from_left' }} />
-        </Stack>
-      </ThemeProvider>
+      <SafeAreaProvider>
+        <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="+not-found" />
+            <Stack.Screen name="onboarding/index" options={{ headerShown: false }} />
+            <Stack.Screen name="modals/weekly-review" options={{ presentation: 'modal', title: 'Weekly Review' }} />
+            <Stack.Screen name="modals/goal-detail" options={{ presentation: 'modal', title: 'Goal Details', animation: 'slide_from_left' }} />
+          </Stack>
+        </ThemeProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

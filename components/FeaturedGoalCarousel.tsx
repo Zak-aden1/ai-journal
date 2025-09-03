@@ -33,8 +33,8 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
     return primaryIndex >= 0 ? primaryIndex : 0;
   });
   
-  // Animation refs
-  const slideAnim = useRef(new Animated.Value(0)).current;
+  // Enhanced animation refs with physics
+  const scaleAnim = useRef(new Animated.Value(1)).current;
   const panValue = useRef(new Animated.Value(0)).current;
   
   const navigateToGoal = useCallback((direction: 'left' | 'right') => {
@@ -44,61 +44,118 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
       ? (currentIndex - 1 + goals.length) % goals.length
       : (currentIndex + 1) % goals.length;
     
-    // Animate the transition
-    const targetValue = direction === 'left' ? 300 : -300;
+    // Enhanced transition with spring physics
+    const targetValue = direction === 'left' ? 50 : -50;
     
     Animated.sequence([
-      Animated.timing(panValue, {
-        toValue: targetValue,
-        duration: 200,
-        useNativeDriver: false,
-      }),
-      Animated.timing(slideAnim, {
+      // Slight movement + scale for anticipation
+      Animated.parallel([
+        Animated.spring(panValue, {
+          toValue: targetValue * 0.3,
+          useNativeDriver: false,
+          tension: 300,
+          friction: 20,
+        }),
+        Animated.spring(scaleAnim, {
+          toValue: 0.95,
+          useNativeDriver: false,
+          tension: 300,
+          friction: 20,
+        }),
+      ]),
+      // Spring back with overshoot
+      Animated.parallel([
+        Animated.spring(panValue, {
+          toValue: 0,
+          useNativeDriver: false,
+          tension: 150,
+          friction: 12,
+          restDisplacementThreshold: 0.1,
+        }),
+        Animated.spring(scaleAnim, {
+          toValue: 1.02,
+          useNativeDriver: false,
+          tension: 150,
+          friction: 8,
+        }),
+      ]),
+      // Settle
+      Animated.spring(scaleAnim, {
         toValue: 1,
-        duration: 0,
         useNativeDriver: false,
+        tension: 200,
+        friction: 10,
       }),
     ]).start(() => {
-      setCurrentIndex(newIndex);
       const newGoal = goals[newIndex];
       onGoalPress?.(newGoal.id);
-      
-      // Reset animations for next transition
-      panValue.setValue(0);
-      slideAnim.setValue(0);
     });
-  }, [currentIndex, goals, onGoalPress, panValue, slideAnim]);
+    
+    // Update index immediately for smooth UX
+    setCurrentIndex(newIndex);
+  }, [currentIndex, goals, onGoalPress, panValue, scaleAnim]);
 
-  // Safer PanResponder implementation
+  // Enhanced PanResponder with momentum and magnetic snapping
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) => {
-      return Math.abs(gestureState.dx) > 20 && Math.abs(gestureState.dy) < 80;
+      return Math.abs(gestureState.dx) > 15 && Math.abs(gestureState.dy) < 60;
     },
     onPanResponderGrant: () => {
       panValue.setOffset(panValue._value);
       panValue.setValue(0);
+      // Subtle scale feedback when starting gesture
+      Animated.spring(scaleAnim, {
+        toValue: 0.98,
+        useNativeDriver: false,
+        tension: 300,
+        friction: 20,
+      }).start();
     },
     onPanResponderMove: (_, gestureState) => {
-      // Limit the pan distance to prevent extreme values
-      const clampedDx = Math.max(-150, Math.min(150, gestureState.dx));
+      // Limit pan distance with resistance at edges
+      const maxDistance = 120;
+      const resistance = 0.7;
+      let clampedDx = gestureState.dx;
+      
+      if (Math.abs(gestureState.dx) > maxDistance) {
+        const excess = Math.abs(gestureState.dx) - maxDistance;
+        const sign = gestureState.dx > 0 ? 1 : -1;
+        clampedDx = sign * (maxDistance + excess * resistance);
+      }
+      
       panValue.setValue(clampedDx);
     },
     onPanResponderRelease: (_, gestureState) => {
       panValue.flattenOffset();
       
-      const threshold = 50;
-      if (Math.abs(gestureState.dx) > threshold && goals.length > 1) {
+      // Calculate velocity-based threshold for more natural feel
+      const velocity = Math.abs(gestureState.vx);
+      const distance = Math.abs(gestureState.dx);
+      const threshold = Math.max(40, Math.min(80, 40 + velocity * 20));
+      
+      if (distance > threshold && goals.length > 1) {
         const direction = gestureState.dx > 0 ? 'left' : 'right';
         navigateToGoal(direction);
       } else {
-        // Snap back to center
-        Animated.spring(panValue, {
-          toValue: 0,
-          useNativeDriver: false,
-        }).start();
+        // Magnetic snap back to center with overshoot
+        Animated.parallel([
+          Animated.spring(panValue, {
+            toValue: 0,
+            useNativeDriver: false,
+            tension: 200,
+            friction: 15,
+            velocity: -gestureState.vx * 0.1, // Use release velocity
+          }),
+          Animated.spring(scaleAnim, {
+            toValue: 1,
+            useNativeDriver: false,
+            tension: 200,
+            friction: 15,
+          }),
+        ]).start();
       }
     },
-  }), [goals.length, navigateToGoal, panValue]);
+  }), [goals.length, navigateToGoal, panValue, scaleAnim]);
   
 
   const currentGoal = goals[currentIndex];
@@ -176,9 +233,10 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
             styles.goalCard,
             { 
               borderColor: vitalityColor + '30',
-              transform: [{
-                translateX: panValue
-              }]
+              transform: [
+                { translateX: panValue },
+                { scale: scaleAnim }
+              ]
             }
           ]}
         >
@@ -198,7 +256,7 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
                 type={avatar.type}
                 vitality={avatar.vitality}
                 size={80}
-                animated
+                animated={false}
               />
               <Text style={styles.avatarName}>{avatar.name}</Text>
               <Text style={[styles.vitalityText, { color: vitalityColor }]}>
