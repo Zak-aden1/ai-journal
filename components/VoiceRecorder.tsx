@@ -3,11 +3,13 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 
-type Props = {
-  onSaved: (fileUri: string) => void;
-};
+interface VoiceRecorderProps {
+  onRecordingComplete?: (fileUri: string) => void;
+  onCancel?: () => void;
+  onSaved?: (fileUri: string) => void; // Keep for backward compatibility
+}
 
-export function VoiceRecorder({ onSaved }: Props) {
+export function VoiceRecorder({ onSaved, onRecordingComplete, onCancel }: VoiceRecorderProps) {
   const recordingRef = useRef<Audio.Recording | null>(null);
   const [perm, setPerm] = useState<boolean>(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -52,7 +54,10 @@ export function VoiceRecorder({ onSaved }: Props) {
   }
 
   async function save() {
-    if (uri) onSaved(uri);
+    if (uri) {
+      onSaved?.(uri);
+      onRecordingComplete?.(uri);
+    }
   }
 
   return (

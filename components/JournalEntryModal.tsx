@@ -13,7 +13,8 @@ import {
   Alert
 } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
-import { VoiceRecorder } from '@/components/VoiceRecorder';
+import { VoiceToTextRecorder } from '@/components/VoiceToTextRecorder';
+import { TranscriptionDisplay } from '@/components/TranscriptionDisplay';
 
 type Mood = '😊' | '😐' | '😔' | '😤' | '😍';
 
@@ -37,7 +38,8 @@ export function JournalEntryModal({ visible, onClose, onSave }: JournalEntryModa
   const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
   const [journalText, setJournalText] = useState('');
   const [voiceRecordingUri, setVoiceRecordingUri] = useState<string | null>(null);
-  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
+  const [showVoiceToText, setShowVoiceToText] = useState(false);
+  const [liveTranscription, setLiveTranscription] = useState('');
 
   const handleSave = () => {
     if (!journalText.trim() && !voiceRecordingUri) {
@@ -56,13 +58,27 @@ export function JournalEntryModal({ visible, onClose, onSave }: JournalEntryModa
       setSelectedMood(null);
       setJournalText('');
       setVoiceRecordingUri(null);
-      setShowVoiceRecorder(false);
+      setShowVoiceToText(false);
+      setLiveTranscription('');
     }, 300);
   };
 
-  const handleVoiceRecorded = (uri: string) => {
-    setVoiceRecordingUri(uri);
-    setShowVoiceRecorder(false);
+
+  const handleVoiceToTextComplete = (audioUri: string, transcription?: string) => {
+    setVoiceRecordingUri(audioUri);
+    if (transcription) {
+      setJournalText(transcription);
+      setLiveTranscription('');
+    }
+    setShowVoiceToText(false);
+  };
+
+  const handleTranscriptionUpdate = (text: string) => {
+    setLiveTranscription(text);
+  };
+
+  const handleTranscriptionEdit = (editedText: string) => {
+    setJournalText(editedText);
   };
 
   const canSave = journalText.trim().length > 0 || voiceRecordingUri;
@@ -127,7 +143,7 @@ export function JournalEntryModal({ visible, onClose, onSave }: JournalEntryModa
 
             {/* Journal Text */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>What's on your mind?</Text>
+              <Text style={styles.sectionTitle}>What&apos;s on your mind?</Text>
               <Text style={styles.sectionSubtitle}>
                 Share your thoughts, experiences, or anything you want to remember
               </Text>
@@ -144,16 +160,16 @@ export function JournalEntryModal({ visible, onClose, onSave }: JournalEntryModa
               />
             </View>
 
-            {/* Voice Recording */}
+            {/* Voice Input */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Voice Note (Optional)</Text>
+              <Text style={styles.sectionTitle}>Voice Input (Optional)</Text>
               <Text style={styles.sectionSubtitle}>
-                Sometimes it's easier to speak your thoughts
+                Speak your thoughts and see them typed automatically
               </Text>
               
               {voiceRecordingUri ? (
                 <View style={styles.voiceRecordedCard}>
-                  <Text style={styles.voiceRecordedText}>📝 Voice note recorded</Text>
+                  <Text style={styles.voiceRecordedText}>📝 Voice input saved</Text>
                   <TouchableOpacity 
                     style={styles.voiceDeleteButton}
                     onPress={() => setVoiceRecordingUri(null)}
@@ -163,14 +179,34 @@ export function JournalEntryModal({ visible, onClose, onSave }: JournalEntryModa
                 </View>
               ) : (
                 <TouchableOpacity 
-                  style={styles.voiceRecordButton}
-                  onPress={() => setShowVoiceRecorder(true)}
+                  style={styles.unifiedVoiceButton}
+                  onPress={() => setShowVoiceToText(true)}
                 >
-                  <Text style={styles.voiceRecordEmoji}>🎤</Text>
-                  <Text style={styles.voiceRecordText}>Record Voice Note</Text>
+                  <Text style={styles.unifiedVoiceEmoji}>🎤</Text>
+                  <View style={styles.unifiedVoiceContent}>
+                    <Text style={styles.unifiedVoiceTitle}>Voice Input</Text>
+                    <Text style={styles.unifiedVoiceDescription}>
+                      Tap to speak - your words will be typed automatically
+                    </Text>
+                  </View>
+                  <View style={styles.voiceIndicator}>
+                    <Text style={styles.voiceIndicatorText}>📝</Text>
+                  </View>
                 </TouchableOpacity>
               )}
             </View>
+
+            {/* Live Transcription Display */}
+            {liveTranscription && (
+              <View style={styles.section}>
+                <TranscriptionDisplay
+                  transcription={liveTranscription}
+                  isTranscribing={showVoiceToText}
+                  onTranscriptionEdit={handleTranscriptionEdit}
+                  showEditMode={true}
+                />
+              </View>
+            )}
 
             {/* Encouragement Card */}
             <View style={styles.encouragementCard}>
@@ -182,25 +218,21 @@ export function JournalEntryModal({ visible, onClose, onSave }: JournalEntryModa
             </View>
           </ScrollView>
 
-          {/* Voice Recorder Modal */}
-          {showVoiceRecorder && (
+
+          {/* Voice-to-Text Recorder Modal */}
+          {showVoiceToText && (
             <Modal
-              visible={showVoiceRecorder}
+              visible={showVoiceToText}
               animationType="slide"
-              presentationStyle="pageSheet"
-              onRequestClose={() => setShowVoiceRecorder(false)}
+              presentationStyle="fullScreen"
+              onRequestClose={() => setShowVoiceToText(false)}
             >
-              <SafeAreaView style={styles.voiceRecorderContainer}>
-                <View style={styles.voiceRecorderHeader}>
-                  <TouchableOpacity onPress={() => setShowVoiceRecorder(false)}>
-                    <Text style={styles.voiceRecorderClose}>Cancel</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.voiceRecorderTitle}>Record Voice Note</Text>
-                  <View style={{ width: 60 }} />
-                </View>
-                <VoiceRecorder
-                  onRecordingComplete={handleVoiceRecorded}
-                  onCancel={() => setShowVoiceRecorder(false)}
+              <SafeAreaView style={styles.voiceToTextContainer}>
+                <VoiceToTextRecorder
+                  onTranscriptionUpdate={handleTranscriptionUpdate}
+                  onRecordingComplete={handleVoiceToTextComplete}
+                  onCancel={() => setShowVoiceToText(false)}
+                  mode="voice-to-text"
                 />
               </SafeAreaView>
             </Modal>
@@ -383,26 +415,53 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.text.secondary,
     lineHeight: 20,
   },
-  voiceRecorderContainer: {
-    flex: 1,
-    backgroundColor: theme.colors.background.primary,
-  },
-  voiceRecorderHeader: {
+  unifiedVoiceButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.background.tertiary,
+    backgroundColor: theme.colors.background.secondary,
+    borderRadius: theme.radius,
+    padding: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.background.tertiary,
+    gap: 16,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  voiceRecorderClose: {
-    color: theme.colors.text.secondary,
+  unifiedVoiceEmoji: {
+    fontSize: 28,
+    minWidth: 36,
+    textAlign: 'center',
+  },
+  unifiedVoiceContent: {
+    flex: 1,
+  },
+  unifiedVoiceTitle: {
     fontSize: 16,
-  },
-  voiceRecorderTitle: {
-    fontSize: 18,
     color: theme.colors.text.primary,
     fontWeight: '600',
+    marginBottom: 4,
+  },
+  unifiedVoiceDescription: {
+    fontSize: 14,
+    color: theme.colors.text.secondary,
+    lineHeight: 20,
+  },
+  voiceIndicator: {
+    backgroundColor: theme.colors.primary + '20',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceIndicatorText: {
+    fontSize: 16,
+  },
+  voiceToTextContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background.primary,
   },
 });

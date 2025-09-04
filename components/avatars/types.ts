@@ -16,12 +16,27 @@ export interface AvatarPersonality {
   motivationStyle: MotivationStyle;
 }
 
+export type AvatarEmotionalState = 
+  | 'neutral' 
+  | 'celebrating' 
+  | 'motivated' 
+  | 'discouraged' 
+  | 'curious' 
+  | 'determined' 
+  | 'overwhelmed' 
+  | 'content'
+  | 'thinking'
+  | 'speaking';
+
 export interface AvatarProps {
   vitality: number; // 0-100
   size?: number;
   animated?: boolean;
   showBorder?: boolean;
   style?: any;
+  emotionalState?: AvatarEmotionalState;
+  isTyping?: boolean;
+  recentActivity?: 'message_sent' | 'message_received' | 'idle';
 }
 
 export interface AvatarState {

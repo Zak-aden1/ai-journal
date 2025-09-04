@@ -18,8 +18,9 @@ export function RobotAvatar({
   size = 120, 
   animated = true, 
   showBorder = true,
-  style 
-}: AvatarProps) {
+  style,
+  compact = false
+}: AvatarProps & { compact?: boolean }) {
   const level = getVitalityLevel(vitality);
   
   // Animation values

@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { AvatarRenderer } from '@/components/avatars';
@@ -18,7 +19,9 @@ import { useAppStore, ConversationMessage } from '@/stores/app';
 import * as Haptics from 'expo-haptics';
 import { generateAIResponse, initializeChatAI } from '@/services/ai/chat';
 import { GoalContextBuilder, extractAppStateForContext } from '@/services/ai/contextBuilder';
+import ReAnimated, { FadeInUp, Layout } from 'react-native-reanimated';
 import { getAIConfig } from '@/services/ai/config';
+import { VoiceToTextRecorder } from '@/components/VoiceToTextRecorder';
 
 const QUICK_PROMPTS = [
   { text: "I'm feeling discouraged", emotion: 'supportive' as const },
@@ -55,6 +58,8 @@ export default function GoalChatScreen() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(true);
   const [dynamicPrompts, setDynamicPrompts] = useState(QUICK_PROMPTS);
+  const [showVoiceToText, setShowVoiceToText] = useState(false);
+  const [liveTranscription, setLiveTranscription] = useState('');
   const scrollViewRef = useRef<ScrollView>(null);
   const typingAnimation = useRef(new Animated.Value(0)).current;
 
@@ -159,15 +164,16 @@ export default function GoalChatScreen() {
     };
   };
 
-  const handleSendMessage = async () => {
-    if (!inputText.trim() || !currentGoal || !goalId || !isConnected || isTyping) return;
+  const handleSendMessage = async (messageText?: string) => {
+    const message = messageText || inputText.trim();
+    if (!message || !currentGoal || !goalId || !isConnected || isTyping) return;
     
     // Clear any previous errors when attempting to send
     setConnectionError(null);
 
     const userMessage: ConversationMessage = {
       id: `msg-${Date.now()}-user`,
-      content: inputText.trim(),
+      content: message,
       isUser: true,
       timestamp: Date.now(),
       goalId: goalId,
@@ -251,6 +257,20 @@ export default function GoalChatScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     }, 1500 + Math.random() * 1000); // 1.5-2.5 seconds
+  };
+
+  const handleVoiceToTextComplete = (audioUri: string, transcription?: string) => {
+    setShowVoiceToText(false);
+    setLiveTranscription('');
+    
+    if (transcription) {
+      // Send the transcribed message immediately
+      handleSendMessage(transcription);
+    }
+  };
+
+  const handleTranscriptionUpdate = (text: string) => {
+    setLiveTranscription(text);
   };
 
   const handleQuickPrompt = (prompt: { text: string; emotion: 'supportive' | 'celebratory' | 'motivational' | 'wise' }) => {
@@ -411,6 +431,9 @@ export default function GoalChatScreen() {
                     vitality={avatar.vitality} 
                     size={120} 
                     animated 
+                    emotionalState={messages.length > 0 ? 'content' : 'neutral'}
+                    isTyping={false}
+                    recentActivity="idle"
                   />
                 </View>
                 
@@ -447,42 +470,118 @@ export default function GoalChatScreen() {
           ) : (
             /* Regular Messages */
             <>
-              {messages.map((message) => (
-                <View 
-                  key={message.id} 
-                  style={[
-                    styles.messageContainer, 
-                    message.isUser ? styles.userMessageContainer : styles.goalMessageContainer
-                  ]}
-                >
-                  <View style={[
-                    styles.messageBubble,
-                    message.isUser ? styles.userBubble : styles.goalBubble
-                  ]}>
-                    <Text style={[
-                      styles.messageText,
-                      message.isUser ? styles.userMessageText : styles.goalMessageText
+              {messages.map((message, index) => {
+                const previousMessage = index > 0 ? messages[index - 1] : null;
+                const nextMessage = index < messages.length - 1 ? messages[index + 1] : null;
+                
+                // Group messages from same sender within 5 minutes
+                const isGroupedWithPrevious = previousMessage && 
+                  previousMessage.isUser === message.isUser && 
+                  (message.timestamp - previousMessage.timestamp) < 300000; // 5 minutes
+                
+                const isGroupedWithNext = nextMessage && 
+                  nextMessage.isUser === message.isUser && 
+                  (nextMessage.timestamp - message.timestamp) < 300000; // 5 minutes
+                
+                const isFirstInGroup = !isGroupedWithPrevious;
+                const isLastInGroup = !isGroupedWithNext;
+                
+                return (
+                  <ReAnimated.View 
+                    key={message.id}
+                    entering={FadeInUp.duration(300).delay(index * 50)}
+                    layout={Layout.springify().damping(12).stiffness(100)}
+                    style={[
+                      styles.messageContainer,
+                      message.isUser ? styles.userMessageContainer : styles.goalMessageContainer,
+                      isGroupedWithPrevious && styles.groupedMessage,
+                    ]}
+                  >
+                    {/* Avatar for AI messages - only show for first message in group */}
+                    {!message.isUser && isFirstInGroup && (
+                      <View style={styles.messageAvatar}>
+                        <AvatarRenderer
+                          type={avatar.type}
+                          vitality={avatar.vitality}
+                          size={28}
+                          animated
+                          compact={true}
+                          emotionalState={
+                            message.emotion === 'celebratory' ? 'celebrating' : 
+                            message.emotion === 'motivational' ? 'motivated' :
+                            message.emotion === 'wise' ? 'content' :
+                            // Check if user mentioned completing habits for celebration
+                            (messages.some(m => m.isUser && 
+                              (m.content.toLowerCase().includes('completed') || 
+                               m.content.toLowerCase().includes('did my habits') ||
+                               m.content.toLowerCase().includes('finished') ||
+                               m.content.toLowerCase().includes('done'))) && 
+                             message.vitalityImpact && message.vitalityImpact > 0) ? 'celebrating' :
+                            'speaking'
+                          }
+                          isTyping={false}
+                          recentActivity="message_sent"
+                        />
+                      </View>
+                    )}
+                    
+                    {/* Spacer for grouped AI messages without avatar */}
+                    {!message.isUser && !isFirstInGroup && (
+                      <View style={styles.messageAvatarSpacer} />
+                    )}
+                    
+                    <View style={[
+                      styles.messageBubble,
+                      message.isUser ? styles.userBubble : styles.goalBubble,
+                      // Adjust bubble corners for grouping
+                      message.isUser && isGroupedWithPrevious && styles.userBubbleGroupedTop,
+                      message.isUser && isGroupedWithNext && styles.userBubbleGroupedBottom,
+                      !message.isUser && isGroupedWithPrevious && styles.goalBubbleGroupedTop,
+                      !message.isUser && isGroupedWithNext && styles.goalBubbleGroupedBottom,
                     ]}>
-                      {message.content}
-                    </Text>
-                    <Text style={styles.timestamp}>
-                      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                </View>
-              ))}
+                      <Text style={[
+                        styles.messageText,
+                        message.isUser ? styles.userMessageText : styles.goalMessageText
+                      ]}>
+                        {message.content}
+                      </Text>
+                      {/* Only show timestamp on last message of group */}
+                      {isLastInGroup && (
+                        <Text style={styles.timestamp}>
+                          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      )}
+                    </View>
+                  </ReAnimated.View>
+                );
+              })}
               
               {/* Typing Indicator */}
               {isTyping && (
-                <View style={styles.goalMessageContainer}>
-                  <View style={[styles.messageBubble, styles.goalBubble]}>
+                <ReAnimated.View 
+                  entering={FadeInUp.duration(200)}
+                  style={styles.goalMessageContainer}
+                >
+                  <View style={styles.messageAvatar}>
+                    <AvatarRenderer
+                      type={avatar.type}
+                      vitality={avatar.vitality}
+                      size={28}
+                      animated
+                      compact={true}
+                      emotionalState="thinking"
+                      isTyping={true}
+                      recentActivity="idle"
+                    />
+                  </View>
+                  <View style={[styles.messageBubble, styles.goalBubble, styles.typingBubble]}>
                     <Animated.View style={[styles.typingDots, { opacity: typingAnimation }]}>
                       <View style={styles.typingDot} />
                       <View style={styles.typingDot} />
                       <View style={styles.typingDot} />
                     </Animated.View>
                   </View>
-                </View>
+                </ReAnimated.View>
               )}
             </>
           )}
@@ -491,7 +590,7 @@ export default function GoalChatScreen() {
         {/* Connection Error Banner */}
         {connectionError && (
           <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{connectionError}</Text>
+            <Text style={styles.errorBannerText}>{connectionError}</Text>
             <View style={styles.errorActions}>
               <TouchableOpacity onPress={clearError} style={styles.dismissButton}>
                 <Text style={styles.dismissButtonText}>Dismiss</Text>
@@ -531,32 +630,63 @@ export default function GoalChatScreen() {
 
           {/* Input Area */}
           <View style={styles.inputContainer}>
-            <TextInput
-              style={[
-                styles.textInput,
-                !isConnected && styles.textInputDisabled
-              ]}
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder={isConnected ? "Say something" : "AI connection required"}
-              placeholderTextColor={theme.colors.text.muted}
-              multiline
-              maxLength={500}
-              editable={isConnected}
-            />
-            <TouchableOpacity 
-              style={[
-                styles.sendButton,
-                (!inputText.trim() || isTyping || !isConnected) && styles.sendButtonDisabled
-              ]}
-              onPress={handleSendMessage}
-              disabled={!inputText.trim() || isTyping || !isConnected}
-            >
-              <Text style={styles.sendButtonIcon}>↑</Text>
-            </TouchableOpacity>
+            <View style={styles.inputRow}>
+              <TouchableOpacity 
+                style={styles.voiceButton}
+                onPress={() => setShowVoiceToText(true)}
+                disabled={!isConnected}
+              >
+                <Text style={[
+                  styles.voiceButtonIcon,
+                  !isConnected && styles.voiceButtonIconDisabled
+                ]}>🎤</Text>
+              </TouchableOpacity>
+              
+              <TextInput
+                style={[
+                  styles.textInput,
+                  !isConnected && styles.textInputDisabled
+                ]}
+                value={inputText}
+                onChangeText={setInputText}
+                placeholder={isConnected ? "Say or type something..." : "AI connection required"}
+                placeholderTextColor={theme.colors.text.muted}
+                multiline
+                maxLength={500}
+                editable={isConnected}
+              />
+              
+              <TouchableOpacity 
+                style={[
+                  styles.sendButton,
+                  (!inputText.trim() || isTyping || !isConnected) && styles.sendButtonDisabled
+                ]}
+                onPress={handleSendMessage}
+                disabled={!inputText.trim() || isTyping || !isConnected}
+              >
+                <Text style={styles.sendButtonIcon}>↑</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Voice-to-Text Modal */}
+      <Modal
+        visible={showVoiceToText}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowVoiceToText(false)}
+      >
+        <SafeAreaView style={styles.voiceToTextContainer}>
+          <VoiceToTextRecorder
+            onTranscriptionUpdate={handleTranscriptionUpdate}
+            onRecordingComplete={handleVoiceToTextComplete}
+            onCancel={() => setShowVoiceToText(false)}
+            mode="voice-to-text"
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -618,7 +748,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   messagesContainer: {
     flex: 1,
-    paddingHorizontal: theme.spacing.md,
+    paddingHorizontal: theme.spacing.sm, // Reduce main padding since messageContainer now has it
     paddingTop: theme.spacing.md,
     paddingBottom: 0,
   },
@@ -699,28 +829,38 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   messageContainer: {
     marginBottom: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md, // Better horizontal breathing room
   },
   userMessageContainer: {
     alignItems: 'flex-end',
+    marginLeft: theme.spacing.lg, // Push user messages away from left edge for better balance
   },
   goalMessageContainer: {
     alignItems: 'flex-start',
+    flexDirection: 'row',
+    marginRight: theme.spacing.sm, // Subtle margin for visual balance
   },
   messageBubble: {
-    maxWidth: '80%',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     borderRadius: 20,
+    shadowColor: theme.colors.text.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   userBubble: {
     backgroundColor: theme.colors.primary,
     borderBottomRightRadius: 6,
+    maxWidth: '85%', // More width for user messages (no avatar)
   },
   goalBubble: {
     backgroundColor: theme.colors.background.secondary,
     borderBottomLeftRadius: 6,
     borderWidth: 1,
     borderColor: theme.colors.line,
+    maxWidth: '70%', // Less width for AI messages (accounts for avatar)
   },
   messageText: {
     fontSize: 16,
@@ -777,11 +917,33 @@ const createStyles = (theme: any) => StyleSheet.create({
     textAlign: 'center',
   },
   inputContainer: {
-    flexDirection: 'row',
     paddingHorizontal: theme.spacing.md,
     paddingTop: 6,
     paddingBottom: 6,
+  },
+  inputRow: {
+    flexDirection: 'row',
     alignItems: 'flex-end',
+    gap: 8,
+  },
+  voiceButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  voiceButtonIcon: {
+    fontSize: 18,
+  },
+  voiceButtonIconDisabled: {
+    opacity: 0.5,
   },
   textInput: {
     flex: 1,
@@ -851,7 +1013,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#FF5252',
   },
-  errorText: {
+  errorBannerText: {
     color: 'white',
     fontSize: 14,
     fontWeight: '500',
@@ -892,5 +1054,42 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   quickPromptTextDisabled: {
     opacity: 0.5,
+  },
+  // Message avatar styles
+  messageAvatar: {
+    marginRight: 6,
+    alignSelf: 'flex-end',
+    marginBottom: 4,
+    minWidth: 28,
+    alignItems: 'center',
+  },
+  messageAvatarSpacer: {
+    marginRight: 6,
+    minWidth: 28,
+  },
+  voiceToTextContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background.primary,
+  },
+  // Message grouping styles
+  groupedMessage: {
+    marginBottom: theme.spacing.xs, // Reduced spacing for grouped messages
+  },
+  userBubbleGroupedTop: {
+    borderBottomRightRadius: 8, // Less rounded when grouped
+  },
+  userBubbleGroupedBottom: {
+    borderTopRightRadius: 8, // Less rounded when grouped
+  },
+  goalBubbleGroupedTop: {
+    borderBottomLeftRadius: 8, // Less rounded when grouped
+  },
+  goalBubbleGroupedBottom: {
+    borderTopLeftRadius: 8, // Less rounded when grouped
+  },
+  // Typing indicator styles
+  typingBubble: {
+    minHeight: 32,
+    justifyContent: 'center',
   },
 });

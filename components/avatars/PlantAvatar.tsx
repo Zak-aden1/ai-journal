@@ -17,8 +17,12 @@ export function PlantAvatar({
   size = 120, 
   animated = true, 
   showBorder = true,
-  style 
-}: AvatarProps) {
+  style,
+  emotionalState = 'neutral',
+  isTyping = false,
+  recentActivity = 'idle',
+  compact = false
+}: AvatarProps & { compact?: boolean }) {
   const level = getVitalityLevel(vitality);
   
   // Animation values
@@ -26,6 +30,10 @@ export function PlantAvatar({
   const grow = useSharedValue(0.8);
   const sparkle = useSharedValue(0);
   const droop = useSharedValue(0);
+  const bounce = useSharedValue(0);
+  const glow = useSharedValue(0);
+  const shake = useSharedValue(0);
+  const pulse = useSharedValue(1);
   
   // Get plant configuration based on vitality level
   const getPlantConfig = () => {
@@ -90,14 +98,173 @@ export function PlantAvatar({
   
   const config = getPlantConfig();
   
+  // Get emotion-specific animation configuration
+  const getEmotionConfig = () => {
+    switch (emotionalState) {
+      case 'celebrating':
+        return {
+          bounceIntensity: 3,
+          sparkleIntensity: 2,
+          swayMultiplier: 1.5,
+          particleEmojis: ['🎉', '✨', '🌟', '🎊'],
+          pulseSpeed: 800,
+        };
+      case 'motivated':
+        return {
+          bounceIntensity: 2,
+          sparkleIntensity: 1.5,
+          swayMultiplier: 1.3,
+          particleEmojis: ['⚡', '🔥', '💪', '🚀'],
+          pulseSpeed: 1000,
+        };
+      case 'discouraged':
+        return {
+          bounceIntensity: 0,
+          sparkleIntensity: 0.2,
+          swayMultiplier: 0.5,
+          particleEmojis: ['💧', '😢', '🌧️'],
+          pulseSpeed: 2000,
+        };
+      case 'curious':
+        return {
+          bounceIntensity: 1,
+          sparkleIntensity: 1,
+          swayMultiplier: 0.8,
+          particleEmojis: ['❓', '🔍', '💭', '✨'],
+          pulseSpeed: 1200,
+        };
+      case 'determined':
+        return {
+          bounceIntensity: 1.5,
+          sparkleIntensity: 1,
+          swayMultiplier: 0.7,
+          particleEmojis: ['💪', '🎯', '🔥', '⚡'],
+          pulseSpeed: 900,
+        };
+      case 'overwhelmed':
+        return {
+          bounceIntensity: 0,
+          sparkleIntensity: 0.3,
+          swayMultiplier: 2,
+          particleEmojis: ['😵‍💫', '🌀', '😰'],
+          pulseSpeed: 1800,
+        };
+      case 'content':
+        return {
+          bounceIntensity: 0.5,
+          sparkleIntensity: 0.8,
+          swayMultiplier: 1,
+          particleEmojis: ['😌', '🌸', '☮️', '💚'],
+          pulseSpeed: 1500,
+        };
+      case 'thinking':
+        return {
+          bounceIntensity: 0,
+          sparkleIntensity: 0.5,
+          swayMultiplier: 0.3,
+          particleEmojis: ['💭', '🤔', '💡'],
+          pulseSpeed: 1300,
+        };
+      case 'speaking':
+        return {
+          bounceIntensity: 1,
+          sparkleIntensity: 1,
+          swayMultiplier: 1.2,
+          particleEmojis: ['💬', '🗨️', '📢', '✨'],
+          pulseSpeed: 700,
+        };
+      default: // neutral
+        return {
+          bounceIntensity: 0.5,
+          sparkleIntensity: 0.5,
+          swayMultiplier: 1,
+          particleEmojis: config.particles,
+          pulseSpeed: 1500,
+        };
+    }
+  };
+  
+  const emotionConfig = getEmotionConfig();
+  
   useEffect(() => {
     if (!animated) return;
     
-    // Growth animation
-    grow.value = withSpring(config.growthScale, {
+    // Growth animation with emotion influence
+    const emotionalGrowthScale = config.growthScale * (1 + (emotionConfig.bounceIntensity * 0.1));
+    grow.value = withSpring(emotionalGrowthScale, {
       damping: 8,
       stiffness: 50,
     });
+    
+    // Emotional pulse animation
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1 + (emotionConfig.sparkleIntensity * 0.1), { duration: emotionConfig.pulseSpeed }),
+        withTiming(1, { duration: emotionConfig.pulseSpeed })
+      ),
+      -1,
+      true
+    );
+    
+    // Bounce animation for excited emotions
+    if (emotionConfig.bounceIntensity > 0) {
+      bounce.value = withRepeat(
+        withSequence(
+          withTiming(emotionConfig.bounceIntensity * 5, { duration: 300 }),
+          withTiming(0, { duration: 300 })
+        ),
+        emotionConfig.bounceIntensity * 2,
+        false
+      );
+    }
+    
+    // Typing animation - enhanced with pulse
+    if (isTyping) {
+      glow.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 600 }),
+          withTiming(0.3, { duration: 600 })
+        ),
+        -1,
+        true
+      );
+      
+      // Add gentle pulse animation for thinking
+      pulse.value = withRepeat(
+        withSequence(
+          withTiming(1.1, { duration: 800 }),
+          withTiming(1, { duration: 800 })
+        ),
+        -1,
+        true
+      );
+      
+      // Slight sway during thinking
+      sway.value = withRepeat(
+        withSequence(
+          withTiming(-1.5, { duration: 1500 }),
+          withTiming(1.5, { duration: 1500 })
+        ),
+        -1,
+        true
+      );
+    } else {
+      glow.value = withTiming(0, { duration: 300 });
+      // Return to normal pulse when not typing
+      pulse.value = withTiming(1, { duration: 300 });
+    }
+    
+    // Special celebration animation
+    if (emotionalState === 'celebrating') {
+      sparkle.value = withRepeat(
+        withSequence(
+          withTiming(2, { duration: 200 }),
+          withTiming(0, { duration: 200 })
+        ),
+        6,
+        false
+      );
+    }
     
     // Different animations based on vitality level
     switch (level) {
@@ -198,19 +365,23 @@ export function PlantAvatar({
         );
         break;
     }
-  }, [level, animated, sway, grow, sparkle, droop]);
+  }, [level, animated, emotionalState, isTyping, recentActivity, sway, grow, sparkle, droop, bounce, glow, shake, pulse]);
   
   const plantStyle = useAnimatedStyle(() => ({
     transform: [
-      { scale: grow.value },
-      { rotate: `${sway.value}deg` },
-      { translateY: droop.value }
+      { scale: grow.value * pulse.value },
+      { rotate: `${sway.value * emotionConfig.swayMultiplier}deg` },
+      { translateY: droop.value - bounce.value },
+      { translateX: shake.value }
     ],
   }));
   
   const containerStyle = useAnimatedStyle(() => ({
     backgroundColor: config.backgroundColor,
     borderColor: config.borderColor,
+    shadowOpacity: glow.value * 0.5,
+    shadowRadius: glow.value * 10,
+    shadowColor: config.borderColor,
   }));
   
   const sparkleStyle = useAnimatedStyle(() => ({
@@ -224,51 +395,113 @@ export function PlantAvatar({
   
   return (
     <View style={[styles.container, style]}>
-      <Animated.View style={[styles.avatar, containerStyle]}>
-        {/* Sparkle effect for perfect vitality */}
-        {level === 'perfect' && (
-          <Animated.View style={[styles.sparkleContainer, sparkleStyle]}>
-            <Text style={styles.sparkle}>✨</Text>
-            <Text style={[styles.sparkle, styles.sparkle2]}>✨</Text>
-            <Text style={[styles.sparkle, styles.sparkle3]}>✨</Text>
+      {compact ? (
+        /* Compact mode - minimal particles for celebration only */
+        <View style={styles.compactContainer}>
+          <Animated.View style={[styles.avatar, containerStyle]}>
+            {/* Plant */}
+            <Animated.View style={[styles.plantContainer, plantStyle]}>
+              <Text style={styles.plantEmoji}>{config.plant}</Text>
+            </Animated.View>
+            
+            {/* Pot */}
+            <Text style={styles.potEmoji}>{config.pot}</Text>
           </Animated.View>
-        )}
-        
-        {/* Plant */}
-        <Animated.View style={[styles.plantContainer, plantStyle]}>
-          <Text style={styles.plantEmoji}>{config.plant}</Text>
-        </Animated.View>
-        
-        {/* Pot */}
-        <Text style={styles.potEmoji}>{config.pot}</Text>
-        
-        {/* Vitality percentage */}
-        <View style={styles.vitalityBadge}>
-          <Text style={styles.vitalityText}>{vitality}%</Text>
+          
+          {/* Celebration particles in compact mode */}
+          {emotionalState === 'celebrating' && (
+            <>
+              <Animated.Text 
+                style={[
+                  styles.compactParticle,
+                  styles.compactParticle1,
+                  { 
+                    opacity: sparkle.value,
+                    transform: [{ scale: sparkle.value }] 
+                  }
+                ]}
+              >
+                🎉
+              </Animated.Text>
+              <Animated.Text 
+                style={[
+                  styles.compactParticle,
+                  styles.compactParticle2,
+                  { 
+                    opacity: sparkle.value * 0.8,
+                    transform: [{ scale: sparkle.value * 0.9 }] 
+                  }
+                ]}
+              >
+                ✨
+              </Animated.Text>
+            </>
+          )}
         </View>
-        
-        {/* Floating particles */}
-        {config.particles.map((particle, index) => (
-          <Animated.Text 
-            key={index}
-            style={[
-              styles.particle,
-              {
-                top: 10 + (index * 15),
-                right: 5 + (index * 8),
-                opacity: level === 'critical' ? 0.3 : 0.7,
-              }
-            ]}
-          >
-            {particle}
-          </Animated.Text>
-        ))}
-      </Animated.View>
-      
-      {/* Description */}
-      <Text style={[styles.description, { color: config.borderColor }]}>
-        {config.description}
-      </Text>
+      ) : (
+        /* Full mode - with particles and effects */
+        <>
+          {/* Expanded container for particles */}
+          <View style={styles.avatarContainer}>
+            <Animated.View style={[styles.avatar, containerStyle]}>
+              {/* Sparkle effect for perfect vitality */}
+              {level === 'perfect' && (
+                <Animated.View style={[styles.sparkleContainer, sparkleStyle]}>
+                  <Text style={styles.sparkle}>✨</Text>
+                  <Text style={[styles.sparkle, styles.sparkle2]}>✨</Text>
+                  <Text style={[styles.sparkle, styles.sparkle3]}>✨</Text>
+                </Animated.View>
+              )}
+              
+              {/* Plant */}
+              <Animated.View style={[styles.plantContainer, plantStyle]}>
+                <Text style={styles.plantEmoji}>{config.plant}</Text>
+              </Animated.View>
+              
+              {/* Pot */}
+              <Text style={styles.potEmoji}>{config.pot}</Text>
+              
+              {/* Vitality percentage */}
+              <View style={styles.vitalityBadge}>
+                <Text style={styles.vitalityText}>{vitality}%</Text>
+              </View>
+            </Animated.View>
+            
+            {/* Floating particles outside main avatar */}
+            {emotionConfig.particleEmojis.map((particle, index) => {
+              const particleRadius = size * 0.7; // Particles float around the avatar
+              const angle = (index * (360 / emotionConfig.particleEmojis.length)) * (Math.PI / 180);
+              const particleX = Math.cos(angle) * particleRadius;
+              const particleY = Math.sin(angle) * particleRadius;
+              
+              return (
+                <Animated.Text 
+                  key={index}
+                  style={[
+                    styles.particle,
+                    {
+                      left: (size * 1.6) / 2 + particleX - 8, // Center within expanded container
+                      top: (size * 1.6) / 2 + particleY - 8,   // Center within expanded container
+                      opacity: level === 'critical' ? 0.4 : 0.8,
+                      transform: [
+                        { scale: pulse.value * 0.3 + 0.8 }, // Animate with pulse
+                        { rotate: `${sparkle.value * 45}deg` }, // Add slight rotation for celebration
+                      ],
+                    }
+                  ]}
+                >
+                  {particle}
+                </Animated.Text>
+              );
+            })}
+          </View>
+          
+          {/* Description */}
+          <Text style={[styles.description, { color: config.borderColor }]}>
+            {config.description}
+          </Text>
+        </>
+      )}
     </View>
   );
 }
@@ -276,6 +509,20 @@ export function PlantAvatar({
 const createStyles = (size: number) => StyleSheet.create({
   container: {
     alignItems: 'center',
+  },
+  avatarContainer: {
+    width: size * 1.6, // Extra space for particles
+    height: size * 1.6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  compactContainer: {
+    width: size + 16, // Small buffer for compact celebration particles
+    height: size + 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
   },
   avatar: {
     width: size,
@@ -289,7 +536,6 @@ const createStyles = (size: number) => StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
     position: 'relative',
-    overflow: 'hidden',
   },
   plantContainer: {
     alignItems: 'center',
@@ -344,7 +590,26 @@ const createStyles = (size: number) => StyleSheet.create({
   },
   particle: {
     position: 'absolute',
-    fontSize: 8,
+    fontSize: Math.max(12, size * 0.12), // Scale with avatar size, minimum 12px
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  // Compact mode celebration particles
+  compactParticle: {
+    position: 'absolute',
+    fontSize: size * 0.4, // Smaller particles for compact mode
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  compactParticle1: {
+    top: -4,
+    right: -4,
+  },
+  compactParticle2: {
+    bottom: -4,
+    left: -4,
   },
   description: {
     fontSize: 12,

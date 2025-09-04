@@ -16,8 +16,9 @@ export function BaseAvatar({
   size = 120, 
   animated = true, 
   showBorder = true,
-  style 
-}: AvatarProps) {
+  style,
+  compact = false
+}: AvatarProps & { compact?: boolean }) {
   const level = getVitalityLevel(vitality);
   const description = getVitalityDescription(level);
   
