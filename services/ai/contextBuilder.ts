@@ -70,7 +70,7 @@ export class GoalContextBuilder {
    */
   private static detectEmotionalState(
     messages: ConversationMessage[]
-  ): 'motivated' | 'discouraged' | 'celebrating' | 'neutral' {
+  ): 'motivated' | 'discouraged' | 'celebrating' | 'neutral' | 'curious' | 'determined' | 'overwhelmed' | 'content' {
     if (messages.length === 0) return 'neutral';
     
     const recentUserMessages = messages
@@ -80,19 +80,40 @@ export class GoalContextBuilder {
     
     const allText = recentUserMessages.join(' ');
     
-    // Check for celebrating keywords
-    if (/(completed|finished|did it|success|great|amazing|proud|achieved|won|accomplished)/i.test(allText)) {
-      return 'celebrating';
+    // Enhanced emotion detection with more nuanced states
+    const emotionKeywords = {
+      celebrating: ['completed', 'finished', 'did it', 'success', 'great', 'amazing', 'proud', 'achieved', 'won', 'accomplished', 'nailed it', 'crushed', 'awesome'],
+      overwhelmed: ['overwhelmed', 'too much', 'stressed', 'panic', 'chaos', 'drowning', 'swamped', 'scattered', 'frazzled'],
+      discouraged: ['frustrated', 'stuck', 'giving up', 'failed', 'tired', 'disappointed', 'hopeless', 'defeated', 'struggling'],
+      determined: ['will do', 'committed', 'focused', 'determined', 'gonna', 'push through', 'persist', 'dedicated', 'resolved'],
+      motivated: ['ready', 'motivated', 'excited', "let's do", 'pumped', 'energized', 'confident', 'inspired', 'fired up'],
+      curious: ['how', 'what', 'why', 'wondering', 'curious', 'interested', 'learn', 'understand', 'explore', 'questions'],
+      content: ['good', 'okay', 'fine', 'steady', 'consistent', 'peaceful', 'balanced', 'stable', 'satisfied']
+    };
+    
+    // Score each emotion based on keyword matches
+    const emotionScores: Record<string, number> = {};
+    
+    for (const [emotion, keywords] of Object.entries(emotionKeywords)) {
+      emotionScores[emotion] = keywords.filter(keyword => 
+        new RegExp(`\\b${keyword}\\b`, 'i').test(allText)
+      ).length;
     }
     
-    // Check for discouraged keywords
-    if (/(frustrated|stuck|hard|difficult|giving up|failed|can't|tired|overwhelmed)/i.test(allText)) {
-      return 'discouraged';
+    // Find the emotion with highest score
+    const topEmotion = Object.entries(emotionScores).reduce((max, [emotion, score]) => 
+      score > max.score ? { emotion, score } : max, 
+      { emotion: 'neutral', score: 0 }
+    );
+    
+    // Return the detected emotion if score is significant
+    if (topEmotion.score > 0) {
+      return topEmotion.emotion as any;
     }
     
-    // Check for motivated keywords
-    if (/(ready|motivated|excited|let's do|pumped|energized|confident)/i.test(allText)) {
-      return 'motivated';
+    // Fallback: check message length and punctuation for intensity
+    if (allText.includes('!!!') || allText.includes('???')) {
+      return recentUserMessages.some(msg => msg.includes('!')) ? 'motivated' : 'curious';
     }
     
     return 'neutral';

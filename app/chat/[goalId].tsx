@@ -45,9 +45,16 @@ export default function GoalChatScreen() {
     conversations
   } = useAppStore();
 
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  // Use messages directly from store instead of local state
+  const messages = goalId ? getGoalConversation(goalId) : [];
+  
+  // Debug: log messages for troubleshooting
+  console.log('Current messages for rendering:', messages.length, messages);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isConnected, setIsConnected] = useState(true);
+  const [dynamicPrompts, setDynamicPrompts] = useState(QUICK_PROMPTS);
   const scrollViewRef = useRef<ScrollView>(null);
   const typingAnimation = useRef(new Animated.Value(0)).current;
 
@@ -80,10 +87,7 @@ export default function GoalChatScreen() {
     const initializeChat = async () => {
       const existingMessages = getGoalConversation(goalId);
       
-      if (existingMessages.length > 0) {
-        // Load existing conversation
-        setMessages(existingMessages);
-      } else {
+      if (existingMessages.length === 0) {
         // Generate contextual greeting inline
         let greeting = "";
         const hour = new Date().getHours();
@@ -114,7 +118,6 @@ export default function GoalChatScreen() {
         };
         
         addConversationMessage(initialMessage);
-        setMessages([initialMessage]);
         
         // Small vitality boost for starting conversation
         updateAvatarVitality(Math.min(100, avatar.vitality + 2));
@@ -125,54 +128,42 @@ export default function GoalChatScreen() {
     initializeChat();
   }, [currentGoal, goalId, getGoalConversation, addConversationMessage, updateAvatarVitality, avatar.vitality, updateAvatarMemoryWithActivity]);
 
-  // Update messages when store changes
-  useEffect(() => {
-    if (goalId) {
-      const storeMessages = getGoalConversation(goalId);
-      setMessages(storeMessages);
-    }
-  }, [goalId, getGoalConversation]);
+  // Messages are now directly from store, no sync needed
 
 
   const generateGoalResponse = async (userMessage: string, emotion?: 'supportive' | 'celebratory' | 'motivational' | 'wise'): Promise<{ content: string; emotion: 'supportive' | 'celebratory' | 'motivational' | 'wise'; vitalityImpact: number }> => {
-    if (!currentGoal || !goalId) return { content: "I'm here to help!", emotion: 'supportive', vitalityImpact: 1 };
-    
-    try {
-      // Extract app state for context building
-      const appState = extractAppStateForContext(goalId, {
-        goalsWithIds,
-        goalMeta,
-        habitsWithIds,
-        avatar,
-        conversations,
-      });
-      
-      // Build comprehensive context
-      const goalContext = GoalContextBuilder.buildGoalContext(appState);
-      const conversationContext = GoalContextBuilder.buildConversationContext(messages);
-      
-      // Generate AI response
-      const aiResponse = await generateAIResponse(userMessage, goalContext, conversationContext);
-      
-      return {
-        content: aiResponse.content,
-        emotion: aiResponse.emotion,
-        vitalityImpact: aiResponse.vitalityImpact,
-      };
-    } catch (error) {
-      console.warn('AI response failed, using fallback:', error);
-      
-      // Fallback to simple response
-      return {
-        content: `I'm here to support you with ${currentGoal.title}. What's on your mind?`,
-        emotion: emotion || 'supportive',
-        vitalityImpact: 2,
-      };
+    if (!currentGoal || !goalId) {
+      throw new Error('Goal information is required for AI chat');
     }
+    
+    // Extract app state for context building
+    const appState = extractAppStateForContext(goalId, {
+      goalsWithIds,
+      goalMeta,
+      habitsWithIds,
+      avatar,
+      conversations,
+    });
+    
+    // Build comprehensive context
+    const goalContext = GoalContextBuilder.buildGoalContext(appState);
+    const conversationContext = GoalContextBuilder.buildConversationContext(messages);
+    
+    // Generate AI response - no fallback, let errors bubble up
+    const aiResponse = await generateAIResponse(userMessage, goalContext, conversationContext);
+    
+    return {
+      content: aiResponse.content,
+      emotion: aiResponse.emotion,
+      vitalityImpact: aiResponse.vitalityImpact,
+    };
   };
 
   const handleSendMessage = async () => {
-    if (!inputText.trim() || !currentGoal || !goalId) return;
+    if (!inputText.trim() || !currentGoal || !goalId || !isConnected || isTyping) return;
+    
+    // Clear any previous errors when attempting to send
+    setConnectionError(null);
 
     const userMessage: ConversationMessage = {
       id: `msg-${Date.now()}-user`,
@@ -182,9 +173,16 @@ export default function GoalChatScreen() {
       goalId: goalId,
     };
 
+    console.log('Adding user message:', userMessage);
     addConversationMessage(userMessage);
     setInputText('');
     setIsTyping(true);
+    
+    // Log current messages after adding
+    setTimeout(() => {
+      const currentMessages = getGoalConversation(goalId);
+      console.log('Messages after adding:', currentMessages);
+    }, 100);
     
     // Haptic feedback
     Haptics.selectionAsync();
@@ -221,6 +219,11 @@ export default function GoalChatScreen() {
         updateAvatarVitality(Math.min(100, avatar.vitality + aiResponse.vitalityImpact));
         updateAvatarMemoryWithActivity('goal_interaction', currentGoal.title);
         
+        // Update dynamic prompts if available
+        if ((aiResponse as any).suggestedPrompts) {
+          setDynamicPrompts((aiResponse as any).suggestedPrompts);
+        }
+        
         // Success haptic
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (error) {
@@ -228,12 +231,33 @@ export default function GoalChatScreen() {
         setIsTyping(false);
         typingAnimation.stopAnimation();
         typingAnimation.setValue(0);
+        
+        // Handle connection errors specifically
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        if (errorMessage.includes('Network error') || errorMessage.includes('fetch')) {
+          setConnectionError('Unable to connect to AI service. Please check your internet connection.');
+          setIsConnected(false);
+        } else if (errorMessage.includes('unavailable')) {
+          setConnectionError('AI service is temporarily unavailable. Please try again later.');
+          setIsConnected(false);
+        } else if (errorMessage.includes('rate limit')) {
+          setConnectionError('Too many requests. Please wait a moment and try again.');
+        } else {
+          setConnectionError('Failed to get AI response. Please try again.');
+          setIsConnected(false);
+        }
+        
+        // Show error haptic feedback
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     }, 1500 + Math.random() * 1000); // 1.5-2.5 seconds
   };
 
   const handleQuickPrompt = (prompt: { text: string; emotion: 'supportive' | 'celebratory' | 'motivational' | 'wise' }) => {
-    if (!currentGoal || !goalId) return;
+    if (!currentGoal || !goalId || !isConnected || isTyping) return;
+    
+    // Clear any previous errors when attempting to send
+    setConnectionError(null);
     
     const userMessage: ConversationMessage = {
       id: `msg-${Date.now()}-user`,
@@ -267,10 +291,33 @@ export default function GoalChatScreen() {
 
         updateAvatarVitality(Math.min(100, avatar.vitality + aiResponse.vitalityImpact));
         
+        // Update dynamic prompts if available
+        if ((aiResponse as any).suggestedPrompts) {
+          setDynamicPrompts((aiResponse as any).suggestedPrompts);
+        }
+        
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (error) {
         console.error('Failed to generate AI response for quick prompt:', error);
         setIsTyping(false);
+        
+        // Handle connection errors specifically
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        if (errorMessage.includes('Network error') || errorMessage.includes('fetch')) {
+          setConnectionError('Unable to connect to AI service. Please check your internet connection.');
+          setIsConnected(false);
+        } else if (errorMessage.includes('unavailable')) {
+          setConnectionError('AI service is temporarily unavailable. Please try again later.');
+          setIsConnected(false);
+        } else if (errorMessage.includes('rate limit')) {
+          setConnectionError('Too many requests. Please wait a moment and try again.');
+        } else {
+          setConnectionError('Failed to get AI response. Please try again.');
+          setIsConnected(false);
+        }
+        
+        // Show error haptic feedback
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     }, 1200);
   };
@@ -279,6 +326,24 @@ export default function GoalChatScreen() {
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
+  };
+
+  const testConnection = async () => {
+    try {
+      setConnectionError(null);
+      // Simple connection test by trying to generate a minimal response
+      const testResponse = await generateGoalResponse("Hello");
+      setIsConnected(true);
+      setConnectionError(null);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setConnectionError(`Connection failed: ${errorMessage}`);
+      setIsConnected(false);
+    }
+  };
+
+  const clearError = () => {
+    setConnectionError(null);
   };
 
   useEffect(() => {
@@ -423,6 +488,21 @@ export default function GoalChatScreen() {
           )}
         </ScrollView>
 
+        {/* Connection Error Banner */}
+        {connectionError && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorText}>{connectionError}</Text>
+            <View style={styles.errorActions}>
+              <TouchableOpacity onPress={clearError} style={styles.dismissButton}>
+                <Text style={styles.dismissButtonText}>Dismiss</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={testConnection} style={styles.retryButton}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Bottom Section - Quick Prompts + Input */}
         <View style={styles.bottomSection}>
           {/* Quick Prompts */}
@@ -431,13 +511,20 @@ export default function GoalChatScreen() {
             style={styles.quickPromptsContainer}
             showsHorizontalScrollIndicator={false}
           >
-            {QUICK_PROMPTS.map((prompt, index) => (
+            {dynamicPrompts.map((prompt, index) => (
               <TouchableOpacity
                 key={index}
-                style={styles.quickPrompt}
+                style={[
+                  styles.quickPrompt,
+                  (!isConnected || isTyping) && styles.quickPromptDisabled
+                ]}
                 onPress={() => handleQuickPrompt(prompt)}
+                disabled={!isConnected || isTyping}
               >
-                <Text style={styles.quickPromptText}>{prompt.text}</Text>
+                <Text style={[
+                  styles.quickPromptText,
+                  (!isConnected || isTyping) && styles.quickPromptTextDisabled
+                ]}>{prompt.text}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -445,21 +532,25 @@ export default function GoalChatScreen() {
           {/* Input Area */}
           <View style={styles.inputContainer}>
             <TextInput
-              style={styles.textInput}
+              style={[
+                styles.textInput,
+                !isConnected && styles.textInputDisabled
+              ]}
               value={inputText}
               onChangeText={setInputText}
-              placeholder="Say something"
+              placeholder={isConnected ? "Say something" : "AI connection required"}
               placeholderTextColor={theme.colors.text.muted}
               multiline
               maxLength={500}
+              editable={isConnected}
             />
             <TouchableOpacity 
               style={[
                 styles.sendButton,
-                (!inputText.trim() || isTyping) && styles.sendButtonDisabled
+                (!inputText.trim() || isTyping || !isConnected) && styles.sendButtonDisabled
               ]}
               onPress={handleSendMessage}
-              disabled={!inputText.trim() || isTyping}
+              disabled={!inputText.trim() || isTyping || !isConnected}
             >
               <Text style={styles.sendButtonIcon}>↑</Text>
             </TouchableOpacity>
@@ -751,5 +842,55 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 16,
     color: theme.colors.primary,
     fontWeight: '600',
+  },
+  // Connection error styles
+  errorBanner: {
+    backgroundColor: '#FF6B6B',
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: '#FF5252',
+  },
+  errorText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: theme.spacing.xs,
+  },
+  errorActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: theme.spacing.sm,
+  },
+  dismissButton: {
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 4,
+  },
+  dismissButtonText: {
+    color: 'white',
+    fontSize: 12,
+    opacity: 0.8,
+  },
+  retryButton: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  // Disabled states
+  textInputDisabled: {
+    opacity: 0.5,
+    backgroundColor: theme.colors.background.primary,
+  },
+  quickPromptDisabled: {
+    opacity: 0.5,
+  },
+  quickPromptTextDisabled: {
+    opacity: 0.5,
   },
 });

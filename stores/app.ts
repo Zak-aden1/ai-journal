@@ -33,6 +33,16 @@ export type ConversationMessage = {
   vitalityImpact?: number;
 };
 
+export type ConversationInsight = {
+  id: string;
+  goalId: string;
+  timestamp: number;
+  insight: string;
+  category: 'pattern' | 'breakthrough' | 'challenge' | 'preference';
+  confidence: number; // 0-1
+  relatedMessages: string[]; // message IDs that led to this insight
+};
+
 type Privacy = { localOnly: boolean; voice: boolean };
 
 type GoalMeta = {
@@ -57,6 +67,7 @@ type AppState = {
   primaryGoalId: string | null;
   goalMeta: Record<string, GoalMeta>; // goalId -> meta
   conversations: Record<string, ConversationMessage[]>; // goalId -> messages
+  conversationInsights: Record<string, ConversationInsight[]>; // goalId -> insights
   
   // Avatar system
   avatar: {
@@ -112,6 +123,11 @@ type AppState = {
   getGoalConversation: (goalId: string) => ConversationMessage[];
   addConversationMessage: (message: ConversationMessage) => void;
   clearGoalConversation: (goalId: string) => void;
+  
+  // Conversation insight actions
+  addConversationInsight: (insight: Omit<ConversationInsight, 'id' | 'timestamp'>) => void;
+  getGoalInsights: (goalId: string) => ConversationInsight[];
+  analyzeConversationPatterns: (goalId: string) => ConversationInsight[];
 };
 
 function generateId(): string {
@@ -134,6 +150,7 @@ export const useAppStore = create<AppState>()(
     primaryGoalId: null,
     goalMeta: {},
     conversations: {},
+    conversationInsights: {},
     avatar: {
       type: 'plant',
       name: 'Sage',
@@ -779,6 +796,80 @@ export const useAppStore = create<AppState>()(
     clearGoalConversation: (goalId) => set((s) => {
       delete s.conversations[goalId];
     }),
+
+    // Conversation insight actions
+    addConversationInsight: (insight) => set((s) => {
+      const fullInsight: ConversationInsight = {
+        ...insight,
+        id: generateId(),
+        timestamp: Date.now()
+      };
+      
+      if (!s.conversationInsights[insight.goalId]) {
+        s.conversationInsights[insight.goalId] = [];
+      }
+      s.conversationInsights[insight.goalId].push(fullInsight);
+      
+      // Limit insights to last 20 per goal
+      if (s.conversationInsights[insight.goalId].length > 20) {
+        s.conversationInsights[insight.goalId] = s.conversationInsights[insight.goalId].slice(-20);
+      }
+    }),
+
+    getGoalInsights: (goalId) => {
+      const state = get();
+      return state.conversationInsights[goalId] || [];
+    },
+
+    analyzeConversationPatterns: (goalId) => {
+      const state = get();
+      const messages = state.conversations[goalId] || [];
+      const insights: ConversationInsight[] = [];
+      
+      if (messages.length < 5) return insights; // Need at least 5 messages for pattern analysis
+      
+      const userMessages = messages.filter(m => m.isUser);
+      const recentUserMessages = userMessages.slice(-10);
+      
+      // Analyze timing patterns
+      const messageTimes = recentUserMessages.map(m => new Date(m.timestamp).getHours());
+      const mostCommonHour = messageTimes.reduce((a, b, i, arr) =>
+        arr.filter(v => v === a).length >= arr.filter(v => v === b).length ? a : b
+      );
+      
+      if (messageTimes.filter(h => Math.abs(h - mostCommonHour) <= 1).length >= 3) {
+        insights.push({
+          id: generateId(),
+          goalId,
+          timestamp: Date.now(),
+          insight: `User tends to be most active around ${mostCommonHour}:00`,
+          category: 'pattern',
+          confidence: 0.7,
+          relatedMessages: recentUserMessages.slice(-3).map(m => m.id)
+        });
+      }
+      
+      // Analyze emotional patterns
+      const emotionalMessages = messages.filter(m => m.emotion);
+      if (emotionalMessages.length >= 3) {
+        const mostCommonEmotion = emotionalMessages.reduce((a, b) =>
+          emotionalMessages.filter(m => m.emotion === a.emotion).length >= 
+          emotionalMessages.filter(m => m.emotion === b.emotion).length ? a : b
+        ).emotion;
+        
+        insights.push({
+          id: generateId(),
+          goalId,
+          timestamp: Date.now(),
+          insight: `Conversations tend to be ${mostCommonEmotion}`,
+          category: 'pattern',
+          confidence: 0.6,
+          relatedMessages: emotionalMessages.slice(-2).map(m => m.id)
+        });
+      }
+      
+      return insights;
+    },
   }))
 );
 
