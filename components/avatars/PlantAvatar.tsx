@@ -21,8 +21,9 @@ export function PlantAvatar({
   emotionalState = 'neutral',
   isTyping = false,
   recentActivity = 'idle',
+  relationshipStage = 'stranger',
   compact = false
-}: AvatarProps & { compact?: boolean }) {
+}: AvatarProps) {
   const level = getVitalityLevel(vitality);
   
   // Animation values
@@ -35,6 +36,54 @@ export function PlantAvatar({
   const shake = useSharedValue(0);
   const pulse = useSharedValue(1);
   
+  // Get relationship-based enhancements
+  const getRelationshipEnhancements = () => {
+    switch (relationshipStage) {
+      case 'stranger':
+        return {
+          accessories: [],
+          environment: 'basic',
+          specialEffects: [],
+          plantVariations: {},
+        };
+      case 'acquaintance':
+        return {
+          accessories: ['🌿'], // Small leaf accent
+          environment: 'cozy',
+          specialEffects: ['gentle_glow'],
+          plantVariations: { pot: '🏺' }, // Slightly nicer pot
+        };
+      case 'friend':
+        return {
+          accessories: ['🌿', '🦋'], // Leaf and butterfly friend
+          environment: 'welcoming',
+          specialEffects: ['gentle_glow', 'friendship_sparkles'],
+          plantVariations: { pot: '🏺', backdrop: '🌤️' }, // Nice pot with sunny backdrop
+        };
+      case 'companion':
+        return {
+          accessories: ['🌿', '🦋', '💚'], // Leaf, butterfly, and heart
+          environment: 'intimate',
+          specialEffects: ['gentle_glow', 'friendship_sparkles', 'bond_aura'],
+          plantVariations: { pot: '🏺', backdrop: '🌅', extras: '🌸' }, // Beautiful setup
+        };
+      case 'soulmate':
+        return {
+          accessories: ['🌿', '🦋', '💚', '✨'], // Full accessories
+          environment: 'transcendent',
+          specialEffects: ['gentle_glow', 'friendship_sparkles', 'bond_aura', 'soul_connection'],
+          plantVariations: { pot: '🏛️', backdrop: '🌈', extras: '🌸🌺' }, // Majestic setup
+        };
+      default:
+        return {
+          accessories: [],
+          environment: 'basic',
+          specialEffects: [],
+          plantVariations: {},
+        };
+    }
+  };
+
   // Get plant configuration based on vitality level
   const getPlantConfig = () => {
     switch (level) {
@@ -97,6 +146,17 @@ export function PlantAvatar({
   };
   
   const config = getPlantConfig();
+  const relationshipEnhancements = getRelationshipEnhancements();
+  
+  // Merge relationship enhancements with base config
+  const enhancedConfig = {
+    ...config,
+    pot: relationshipEnhancements.plantVariations.pot || config.pot,
+    accessories: relationshipEnhancements.accessories,
+    backdrop: relationshipEnhancements.plantVariations.backdrop,
+    extras: relationshipEnhancements.plantVariations.extras,
+    specialEffects: relationshipEnhancements.specialEffects,
+  };
   
   // Get emotion-specific animation configuration
   const getEmotionConfig = () => {
@@ -172,6 +232,38 @@ export function PlantAvatar({
           swayMultiplier: 1.2,
           particleEmojis: ['💬', '🗨️', '📢', '✨'],
           pulseSpeed: 700,
+        };
+      case 'bonding':
+        return {
+          bounceIntensity: 1.5,
+          sparkleIntensity: 2,
+          swayMultiplier: 1.1,
+          particleEmojis: ['💕', '🤝', '✨', '🌟'],
+          pulseSpeed: 800,
+        };
+      case 'nostalgic':
+        return {
+          bounceIntensity: 0.3,
+          sparkleIntensity: 0.8,
+          swayMultiplier: 0.7,
+          particleEmojis: ['💭', '🕰️', '📸', '💫'],
+          pulseSpeed: 1800,
+        };
+      case 'protective':
+        return {
+          bounceIntensity: 0.8,
+          sparkleIntensity: 1.2,
+          swayMultiplier: 0.6,
+          particleEmojis: ['🛡️', '💪', '🌟', '⚡'],
+          pulseSpeed: 1000,
+        };
+      case 'transcendent':
+        return {
+          bounceIntensity: 2,
+          sparkleIntensity: 3,
+          swayMultiplier: 1.5,
+          particleEmojis: ['✨', '🌟', '💫', '🔮', '🌈'],
+          pulseSpeed: 600,
         };
       default: // neutral
         return {
@@ -453,13 +545,43 @@ export function PlantAvatar({
                 </Animated.View>
               )}
               
+              {/* Backdrop (if any) */}
+              {enhancedConfig.backdrop && (
+                <Text style={[styles.backdrop, { fontSize: size * 0.8 }]}>
+                  {enhancedConfig.backdrop}
+                </Text>
+              )}
+              
               {/* Plant */}
               <Animated.View style={[styles.plantContainer, plantStyle]}>
                 <Text style={styles.plantEmoji}>{config.plant}</Text>
+                {/* Extras like flowers */}
+                {enhancedConfig.extras && (
+                  <Text style={[styles.plantExtras, { fontSize: size * 0.15 }]}>
+                    {enhancedConfig.extras}
+                  </Text>
+                )}
               </Animated.View>
               
               {/* Pot */}
-              <Text style={styles.potEmoji}>{config.pot}</Text>
+              <Text style={styles.potEmoji}>{enhancedConfig.pot}</Text>
+              
+              {/* Relationship Accessories */}
+              {enhancedConfig.accessories.map((accessory, index) => (
+                <Text 
+                  key={index}
+                  style={[
+                    styles.relationshipAccessory,
+                    {
+                      fontSize: size * 0.12,
+                      top: index * 15 + 10,
+                      right: index * 12 + 8,
+                    }
+                  ]}
+                >
+                  {accessory}
+                </Text>
+              ))}
               
               {/* Vitality percentage */}
               <View style={styles.vitalityBadge}>
@@ -616,5 +738,25 @@ const createStyles = (size: number) => StyleSheet.create({
     fontWeight: '600',
     marginTop: 8,
     textAlign: 'center',
+  },
+  // Relationship enhancement styles
+  backdrop: {
+    position: 'absolute',
+    top: -20,
+    left: -20,
+    opacity: 0.6,
+    zIndex: -1,
+  },
+  plantExtras: {
+    position: 'absolute',
+    bottom: -8,
+    right: -8,
+  },
+  relationshipAccessory: {
+    position: 'absolute',
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    zIndex: 5,
   },
 });

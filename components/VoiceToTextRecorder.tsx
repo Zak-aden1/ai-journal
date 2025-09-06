@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
 import { Audio } from 'expo-av';
-// Note: expo-speech is primarily for text-to-speech, not speech-to-text
-// For production, consider using @react-native-voice/voice or similar
+// Voice recognition will be implemented when ready for production builds
 import * as FileSystem from 'expo-file-system';
 import Animated, {
   useSharedValue,
@@ -117,14 +116,9 @@ export function VoiceToTextRecorder({
   };
   
   const checkSpeechAvailability = async () => {
-    try {
-      // Note: expo-speech doesn't have a direct availability check
-      // We'll assume it's available and handle errors gracefully
-      setIsSpeechAvailable(true);
-    } catch (error) {
-      console.error('Speech recognition not available:', error);
-      setIsSpeechAvailable(false);
-    }
+    // Speech recognition will be available in production builds
+    // For now, just do voice recording
+    setIsSpeechAvailable(false);
   };
   
   const startRecording = async () => {
@@ -147,9 +141,9 @@ export function VoiceToTextRecorder({
       setIsRecording(true);
       setTranscription('');
       
-      // Start speech recognition if in voice-to-text mode
-      if (mode === 'voice-to-text' && isSpeechAvailable) {
-        startSpeechRecognition();
+      // Start speech recognition if available
+      if (isSpeechAvailable) {
+        await startSpeechRecognition();
       }
       
     } catch (error) {
@@ -165,6 +159,15 @@ export function VoiceToTextRecorder({
     try {
       setIsRecording(false);
       setIsTranscribing(false);
+      
+      // Stop speech recognition if it's running
+      if (isSpeechAvailable) {
+        try {
+          await Voice.stop();
+        } catch (error) {
+          console.error('Error stopping speech recognition:', error);
+        }
+      }
       
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
@@ -188,45 +191,23 @@ export function VoiceToTextRecorder({
     if (!isSpeechAvailable) return;
     
     try {
-      setIsTranscribing(true);
+      // Clear any previous transcription
+      setTranscription('');
       
-      // Note: expo-speech is primarily for text-to-speech
-      // For actual speech recognition, we'd typically use a different library
-      // like @react-native-voice/voice or integrate with platform-specific APIs
-      // For now, this is a placeholder that shows the UI structure
-      
-      // Simulate speech recognition updates
-      const simulateTranscription = () => {
-        setTimeout(() => {
-          if (isRecording) {
-            const sampleTexts = [
-              'Today I am feeling...',
-              'Today I am feeling grateful for...',
-              'Today I am feeling grateful for all the small moments...',
-              'Today I am feeling grateful for all the small moments that bring me joy...'
-            ];
-            
-            const currentIndex = Math.min(
-              Math.floor(recordingDuration / 3), 
-              sampleTexts.length - 1
-            );
-            
-            const currentText = sampleTexts[currentIndex] || sampleTexts[sampleTexts.length - 1];
-            setTranscription(currentText);
-            onTranscriptionUpdate?.(currentText);
-            
-            if (isRecording && recordingDuration < maxDuration) {
-              simulateTranscription();
-            }
-          }
-        }, 1000);
-      };
-      
-      simulateTranscription();
+      // Start voice recognition
+      await Voice.start('en-US'); // You can make this configurable
+      console.log('Voice recognition started');
       
     } catch (error) {
       console.error('Speech recognition error:', error);
       setIsTranscribing(false);
+      
+      // Show user-friendly error message
+      Alert.alert(
+        'Speech Recognition Error', 
+        'Unable to start speech recognition. Your voice will still be recorded.',
+        [{ text: 'OK' }]
+      );
     }
   };
   

@@ -4,6 +4,7 @@ import { upsertGoal, upsertHabit, insertEntry, listGoals, listHabitsByGoal, list
 import { nextActionFrom } from '@/services/ai/suggestions';
 import { AvatarType, AvatarMemory } from '@/components/avatars/types';
 import { generatePersonalizedResponse, updateAvatarMemory, getAvatarPersonality, smartMemoryUpdate, generateMotivationalInsight, analyzeUserPatterns } from '@/lib/avatarPersonality';
+import { AvatarRelationshipManager, createAvatarRelationship, RelationshipProgress, RelationshipMilestone } from '@/lib/avatarRelationships';
 
 export type Mode = 'Companion' | 'Coach';
 export type Mood = '😊' | '😐' | '😔' | '😤' | '😍';
@@ -75,6 +76,7 @@ type AppState = {
     name: string;
     vitality: number;
     memory: AvatarMemory;
+    relationship: AvatarRelationshipManager;
   }
 
   // actions
@@ -108,6 +110,13 @@ type AppState = {
   updateAvatarMemoryWithMilestone: (milestone: string) => void;
   updateAvatarMemoryWithActivity: (activityType: 'habit_completion' | 'goal_interaction' | 'journal_entry' | 'achievement', goalName?: string, habitType?: string) => void;
   getAvatarPatternAnalysis: () => ReturnType<typeof analyzeUserPatterns>;
+  
+  // Relationship actions
+  getAvatarRelationship: () => RelationshipProgress;
+  addRelationshipInteraction: (type: 'message' | 'goal_work' | 'celebration' | 'support' | 'deep_share') => void;
+  getRelationshipMilestones: () => RelationshipMilestone[];
+  getPersonalizedGreeting: (timeOfDay: string, context?: { recentActivity?: string; mood?: string }) => string;
+  shouldAvatarInitiateContact: () => boolean;
   
   // Primary goal selection
   setPrimaryGoal: (goalId: string) => void;
@@ -167,7 +176,15 @@ export const useAppStore = create<AppState>()(
           goalNames: [],
           habitTypes: [],
         },
+        relationshipMemories: {
+          sharedMoments: [],
+          insideJokes: [],
+          importantDates: [],
+          personalRevelations: [],
+          growthMoments: [],
+        },
       },
+      relationship: createAvatarRelationship('plant'),
     },
 
     hydrate: async () => {
@@ -654,6 +671,57 @@ export const useAppStore = create<AppState>()(
     getAvatarPatternAnalysis: () => {
       const state = get();
       return analyzeUserPatterns(state.avatar.memory);
+    },
+
+    // Relationship actions
+    getAvatarRelationship: () => {
+      const state = get();
+      return state.avatar.relationship.getProgress();
+    },
+
+    addRelationshipInteraction: (type) => set((s) => {
+      const result = s.avatar.relationship.addInteraction(type);
+      
+      // If a new milestone was reached, add it to memories
+      if (result.newMilestone) {
+        s.avatar.memory.milestones.push(result.newMilestone.title);
+        
+        // Add shared moment for stage progression
+        if (!s.avatar.memory.relationshipMemories) {
+          s.avatar.memory.relationshipMemories = {
+            sharedMoments: [],
+            insideJokes: [],
+            importantDates: [],
+            personalRevelations: [],
+            growthMoments: [],
+          };
+        }
+        
+        s.avatar.memory.relationshipMemories.sharedMoments.push({
+          type: 'breakthrough',
+          description: `Reached ${result.newMilestone.title} relationship stage`,
+          timestamp: Date.now(),
+          emotionalImpact: result.scoreChange
+        });
+        
+        // Log the stage change for debugging
+        console.log(`🎉 Relationship advanced to: ${result.stageChange}`);
+      }
+    }),
+
+    getRelationshipMilestones: () => {
+      const state = get();
+      return state.avatar.relationship.getMilestones();
+    },
+
+    getPersonalizedGreeting: (timeOfDay, context = {}) => {
+      const state = get();
+      return state.avatar.relationship.getPersonalizedGreeting(timeOfDay, context);
+    },
+
+    shouldAvatarInitiateContact: () => {
+      const state = get();
+      return state.avatar.relationship.shouldInitiateInteraction();
     },
 
     // Primary goal selection actions

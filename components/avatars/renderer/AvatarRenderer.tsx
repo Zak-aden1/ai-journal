@@ -16,7 +16,11 @@ export type AvatarEmotionalState =
   | 'overwhelmed' 
   | 'content'
   | 'thinking'
-  | 'speaking';
+  | 'speaking'
+  | 'bonding'
+  | 'nostalgic'
+  | 'protective'
+  | 'transcendent';
 
 export type AvatarRendererProps = {
   type: AvatarType;
@@ -30,6 +34,7 @@ export type AvatarRendererProps = {
   emotionalState?: AvatarEmotionalState;
   isTyping?: boolean;
   recentActivity?: 'message_sent' | 'message_received' | 'idle';
+  relationshipStage?: string;
   compact?: boolean;
 };
 
@@ -41,6 +46,7 @@ const map: Record<AvatarType, React.ComponentType<{
   emotionalState?: AvatarEmotionalState;
   isTyping?: boolean;
   recentActivity?: 'message_sent' | 'message_received' | 'idle';
+  relationshipStage?: string;
   compact?: boolean;
 }>> = {
   plant: PlantAvatar,
@@ -59,6 +65,7 @@ export const AvatarRenderer = memo(function AvatarRenderer({
   emotionalState = 'neutral',
   isTyping = false,
   recentActivity = 'idle',
+  relationshipStage = 'stranger',
   compact = false,
 }: AvatarRendererProps) {
   const Component = map[type] ?? BaseAvatar;
@@ -73,6 +80,7 @@ export const AvatarRenderer = memo(function AvatarRenderer({
         emotionalState={emotionalState}
         isTyping={isTyping}
         recentActivity={recentActivity}
+        relationshipStage={relationshipStage}
         compact={compact}
       />
     </View>

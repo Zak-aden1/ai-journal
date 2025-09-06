@@ -151,7 +151,7 @@ export function JournalEntryModal({ visible, onClose, onSave }: JournalEntryModa
               <TextInput
                 style={styles.textInput}
                 placeholder="Today I'm thinking about..."
-                placeholderTextColor={`${theme.colors.text.primary}60`}
+                placeholderTextColor={`${theme?.colors?.text?.primary || '#999999'}60`}
                 multiline
                 numberOfLines={8}
                 value={journalText}
@@ -327,7 +327,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   moodButtonSelected: {
     borderColor: theme.colors.primary,
-    backgroundColor: `${theme.colors.primary}20`,
+    backgroundColor: `${theme?.colors?.primary || '#007AFF'}20`,
   },
   moodEmoji: {
     fontSize: 24,

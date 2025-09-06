@@ -26,7 +26,11 @@ export type AvatarEmotionalState =
   | 'overwhelmed' 
   | 'content'
   | 'thinking'
-  | 'speaking';
+  | 'speaking'
+  | 'bonding'
+  | 'nostalgic'
+  | 'protective'
+  | 'transcendent';
 
 export interface AvatarProps {
   vitality: number; // 0-100
@@ -37,6 +41,8 @@ export interface AvatarProps {
   emotionalState?: AvatarEmotionalState;
   isTyping?: boolean;
   recentActivity?: 'message_sent' | 'message_received' | 'idle';
+  relationshipStage?: string;
+  compact?: boolean;
 }
 
 export interface AvatarState {
@@ -64,6 +70,31 @@ export interface AvatarMemory {
     goalNames: string[];
     habitTypes: string[];
     userName?: string;
+  };
+  relationshipMemories?: {
+    sharedMoments: {
+      type: 'achievement' | 'struggle' | 'breakthrough' | 'celebration' | 'deep_conversation';
+      description: string;
+      timestamp: number;
+      emotionalImpact: number;
+    }[];
+    insideJokes: string[];
+    importantDates: {
+      date: number;
+      significance: string;
+      anniversary: boolean;
+    }[];
+    personalRevelations: {
+      topic: string;
+      depth: 'surface' | 'personal' | 'intimate';
+      timestamp: number;
+    }[];
+    growthMoments: {
+      before: string;
+      after: string;
+      timestamp: number;
+      catalyst: string;
+    }[];
   };
 }
 

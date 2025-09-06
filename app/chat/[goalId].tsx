@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { AvatarRenderer } from '@/components/avatars';
+import { safeProperty } from '@/lib/safeRender';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppStore, ConversationMessage } from '@/stores/app';
 import * as Haptics from 'expo-haptics';
@@ -35,24 +36,54 @@ export default function GoalChatScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const storeData = useAppStore();
 
-  const { 
-    goalsWithIds, 
-    habitsWithIds, 
-    avatar, 
-    updateAvatarVitality,
-    updateAvatarMemoryWithActivity,
-    getGoalConversation,
-    addConversationMessage,
-    goalMeta,
-    conversations
-  } = useAppStore();
+    const { 
+      goalsWithIds, 
+      habitsWithIds, 
+      avatar, 
+      updateAvatarVitality,
+      updateAvatarMemoryWithActivity,
+      getGoalConversation,
+      addConversationMessage,
+      goalMeta,
+      conversations,
+      getAvatarRelationship,
+      addRelationshipInteraction,
+      getPersonalizedGreeting
+    } = storeData;
 
-  // Use messages directly from store instead of local state
-  const messages = goalId ? getGoalConversation(goalId) : [];
+  // Safe wrapper to get relationship stage
+  const getRelationshipStage = (): string => {
+    try {
+      if (!getAvatarRelationship || typeof getAvatarRelationship !== 'function') {
+        return 'stranger';
+      }
+      const relationship = getAvatarRelationship();
+      const stage = safeProperty(relationship, 'stage', 'stranger');
+      
+      // Validate that the stage is one of the expected values
+      const validStages = ['stranger', 'acquaintance', 'friend', 'companion', 'soulmate'];
+      return validStages.includes(stage) ? stage : 'stranger';
+    } catch (error) {
+      console.error('Error getting relationship stage:', error);
+      return 'stranger';
+    }
+  };
+
+  // Use messages directly from store instead of local state - with safety checks
+  const messages = (goalId && getGoalConversation && typeof getGoalConversation === 'function') 
+    ? getGoalConversation(goalId) || [] 
+    : [];
+
+  // Safety check for avatar
+  const safeAvatar = avatar || {
+    type: 'plant',
+    name: 'Sage', 
+    vitality: 50,
+    memory: { milestones: [], patterns: { bestTimes: [], struggleDays: [], favoriteGoals: [] }, emotionalHistory: [], personalContext: { goalNames: [], habitTypes: [] } }
+  };
   
-  // Debug: log messages for troubleshooting
-  console.log('Current messages for rendering:', messages.length, messages);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -93,24 +124,16 @@ export default function GoalChatScreen() {
       const existingMessages = getGoalConversation(goalId);
       
       if (existingMessages.length === 0) {
-        // Generate contextual greeting inline
-        let greeting = "";
+        // Use relationship-aware personalized greeting
         const hour = new Date().getHours();
-        const vitality = avatar.vitality;
-        
-        // Time-based greeting
-        if (hour < 12) greeting = "Good morning! ";
-        else if (hour < 17) greeting = "Good afternoon! ";
-        else greeting = "Good evening! ";
-        
-        // Vitality-based personality
-        if (vitality <= 30) {
-          greeting += `I've been feeling quite weak lately... I really need your help to grow stronger. How are you feeling about ${currentGoal.title}?`;
-        } else if (vitality <= 70) {
-          greeting += `I'm feeling motivated and ready to help you with ${currentGoal.title}! What's on your mind today?`;
-        } else {
-          greeting += `I'm feeling absolutely vibrant today! ${currentGoal.title} is going amazingly well. How can we keep this momentum going?`;
-        }
+        const timeOfDay = hour < 12 ? 'morning' :
+                         hour < 17 ? 'afternoon' :
+                         hour < 21 ? 'evening' : 'night';
+                         
+        const greeting = getPersonalizedGreeting(timeOfDay, {
+          recentActivity: 'first_meeting',
+          mood: safeAvatar.vitality <= 30 ? 'struggling' : safeAvatar.vitality <= 70 ? 'motivated' : 'excited'
+        }) + ` Let's talk about ${currentGoal.title}!`;
 
         const initialMessage: ConversationMessage = {
           id: `msg-${Date.now()}`,
@@ -125,13 +148,16 @@ export default function GoalChatScreen() {
         addConversationMessage(initialMessage);
         
         // Small vitality boost for starting conversation
-        updateAvatarVitality(Math.min(100, avatar.vitality + 2));
+        updateAvatarVitality(Math.min(100, safeAvatar.vitality + 2));
         updateAvatarMemoryWithActivity('goal_interaction', currentGoal.title);
+        
+        // Track initial relationship interaction
+        addRelationshipInteraction('message');
       }
     };
 
     initializeChat();
-  }, [currentGoal, goalId, getGoalConversation, addConversationMessage, updateAvatarVitality, avatar.vitality, updateAvatarMemoryWithActivity]);
+  }, [currentGoal, goalId, getGoalConversation, addConversationMessage, updateAvatarVitality, safeAvatar.vitality, updateAvatarMemoryWithActivity]);
 
   // Messages are now directly from store, no sync needed
 
@@ -173,7 +199,7 @@ export default function GoalChatScreen() {
 
     const userMessage: ConversationMessage = {
       id: `msg-${Date.now()}-user`,
-      content: message,
+      content: String(message),
       isUser: true,
       timestamp: Date.now(),
       goalId: goalId,
@@ -184,11 +210,7 @@ export default function GoalChatScreen() {
     setInputText('');
     setIsTyping(true);
     
-    // Log current messages after adding
-    setTimeout(() => {
-      const currentMessages = getGoalConversation(goalId);
-      console.log('Messages after adding:', currentMessages);
-    }, 100);
+    // Messages added successfully
     
     // Haptic feedback
     Haptics.selectionAsync();
@@ -208,7 +230,7 @@ export default function GoalChatScreen() {
         
         const goalMessage: ConversationMessage = {
           id: `msg-${Date.now()}-goal`,
-          content: aiResponse.content,
+          content: String(aiResponse.content ?? ''),
           isUser: false,
           timestamp: Date.now(),
           goalId: goalId,
@@ -222,8 +244,30 @@ export default function GoalChatScreen() {
         typingAnimation.setValue(0);
 
         // Apply vitality boost from AI response
-        updateAvatarVitality(Math.min(100, avatar.vitality + aiResponse.vitalityImpact));
+        updateAvatarVitality(Math.min(100, safeAvatar.vitality + aiResponse.vitalityImpact));
         updateAvatarMemoryWithActivity('goal_interaction', currentGoal.title);
+        
+        // Track relationship interaction based on conversation depth and content
+        let interactionType: 'message' | 'goal_work' | 'celebration' | 'support' | 'deep_share' = 'message';
+        
+        // Determine interaction type based on user message content and AI response
+        const messageContent = (userMessage.content || '').toLowerCase();
+        const responseContent = (aiResponse.content || '').toLowerCase();
+        
+        if (messageContent.includes('completed') || messageContent.includes('achieved') || messageContent.includes('success')) {
+          interactionType = 'celebration';
+        } else if (messageContent.includes('struggling') || messageContent.includes('difficult') || messageContent.includes('help') || aiResponse.emotion === 'supportive') {
+          interactionType = 'support';
+        } else if (messageContent.includes('relationship') || messageContent.includes('how are we') || messageContent.includes('our connection')) {
+          interactionType = 'deep_share';
+        } else if (messageContent.length > 100 || aiResponse.emotion === 'wise') {
+          interactionType = 'deep_share';
+        } else if (messageContent.includes('goal') || responseContent.includes('habit')) {
+          interactionType = 'goal_work';
+        }
+        
+        // Track relationship interaction
+        addRelationshipInteraction(interactionType);
         
         // Update dynamic prompts if available
         if ((aiResponse as any).suggestedPrompts) {
@@ -281,7 +325,7 @@ export default function GoalChatScreen() {
     
     const userMessage: ConversationMessage = {
       id: `msg-${Date.now()}-user`,
-      content: prompt.text,
+      content: String(prompt.text),
       isUser: true,
       timestamp: Date.now(),
       goalId: goalId,
@@ -298,7 +342,7 @@ export default function GoalChatScreen() {
         
         const goalMessage: ConversationMessage = {
           id: `msg-${Date.now()}-goal`,
-          content: aiResponse.content,
+          content: String(aiResponse.content ?? ''),
           isUser: false,
           timestamp: Date.now(),
           goalId: goalId,
@@ -309,7 +353,19 @@ export default function GoalChatScreen() {
         addConversationMessage(goalMessage);
         setIsTyping(false);
 
-        updateAvatarVitality(Math.min(100, avatar.vitality + aiResponse.vitalityImpact));
+        updateAvatarVitality(Math.min(100, safeAvatar.vitality + aiResponse.vitalityImpact));
+        
+        // Track relationship interaction for quick prompts too
+        let quickInteractionType: 'message' | 'goal_work' | 'celebration' | 'support' | 'deep_share' = 'message';
+        const promptContent = (prompt.text || '').toLowerCase();
+        
+        if (promptContent.includes('completed') || promptContent.includes('success')) {
+          quickInteractionType = 'celebration';
+        } else if (promptContent.includes('discouraged') || promptContent.includes('help') || promptContent.includes('motivated')) {
+          quickInteractionType = 'support';
+        }
+        
+        addRelationshipInteraction(quickInteractionType);
         
         // Update dynamic prompts if available
         if ((aiResponse as any).suggestedPrompts) {
@@ -427,13 +483,14 @@ export default function GoalChatScreen() {
                 {/* Central Avatar */}
                 <View style={styles.centralAvatar}>
                   <AvatarRenderer 
-                    type={avatar.type} 
-                    vitality={avatar.vitality} 
+                    type={safeAvatar.type} 
+                    vitality={safeAvatar.vitality} 
                     size={120} 
                     animated 
                     emotionalState={messages.length > 0 ? 'content' : 'neutral'}
                     isTyping={false}
                     recentActivity="idle"
+                    relationshipStage={getRelationshipStage()}
                   />
                 </View>
                 
@@ -501,22 +558,26 @@ export default function GoalChatScreen() {
                     {!message.isUser && isFirstInGroup && (
                       <View style={styles.messageAvatar}>
                         <AvatarRenderer
-                          type={avatar.type}
-                          vitality={avatar.vitality}
+                          type={safeAvatar.type}
+                          vitality={safeAvatar.vitality}
                           size={28}
                           animated
                           compact={true}
+                          relationshipStage={getRelationshipStage()}
                           emotionalState={
                             message.emotion === 'celebratory' ? 'celebrating' : 
                             message.emotion === 'motivational' ? 'motivated' :
                             message.emotion === 'wise' ? 'content' :
                             // Check if user mentioned completing habits for celebration
-                            (messages.some(m => m.isUser && 
-                              (m.content.toLowerCase().includes('completed') || 
-                               m.content.toLowerCase().includes('did my habits') ||
-                               m.content.toLowerCase().includes('finished') ||
-                               m.content.toLowerCase().includes('done'))) && 
-                             message.vitalityImpact && message.vitalityImpact > 0) ? 'celebrating' :
+                            (messages.some(m => {
+                              if (!m || !m.isUser) return false;
+                              const raw = typeof m.content === 'string' ? m.content : String(m.content || '');
+                              const content = raw.toLowerCase();
+                              return content.includes('completed') || 
+                                     content.includes('did my habits') ||
+                                     content.includes('finished') ||
+                                     content.includes('done');
+                            }) && message.vitalityImpact && message.vitalityImpact > 0) ? 'celebrating' :
                             'speaking'
                           }
                           isTyping={false}
@@ -543,7 +604,7 @@ export default function GoalChatScreen() {
                         styles.messageText,
                         message.isUser ? styles.userMessageText : styles.goalMessageText
                       ]}>
-                        {message.content}
+                        {typeof message.content === 'string' ? message.content : String(message.content)}
                       </Text>
                       {/* Only show timestamp on last message of group */}
                       {isLastInGroup && (
@@ -564,11 +625,12 @@ export default function GoalChatScreen() {
                 >
                   <View style={styles.messageAvatar}>
                     <AvatarRenderer
-                      type={avatar.type}
-                      vitality={avatar.vitality}
+                      type={safeAvatar.type}
+                      vitality={safeAvatar.vitality}
                       size={28}
                       animated
                       compact={true}
+                      relationshipStage={getRelationshipStage()}
                       emotionalState="thinking"
                       isTyping={true}
                       recentActivity="idle"
@@ -661,7 +723,7 @@ export default function GoalChatScreen() {
                   styles.sendButton,
                   (!inputText.trim() || isTyping || !isConnected) && styles.sendButtonDisabled
                 ]}
-                onPress={handleSendMessage}
+                onPress={() => handleSendMessage()}
                 disabled={!inputText.trim() || isTyping || !isConnected}
               >
                 <Text style={styles.sendButtonIcon}>↑</Text>
