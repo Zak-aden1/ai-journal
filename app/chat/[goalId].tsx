@@ -13,7 +13,7 @@ import {
   Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { AvatarRenderer } from '@/components/avatars';
+import { AvatarRenderer, AvatarEmotionalState } from '@/components/avatars';
 import { safeProperty } from '@/lib/safeRender';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppStore, ConversationMessage } from '@/stores/app';
@@ -71,6 +71,44 @@ export default function GoalChatScreen() {
     }
   };
 
+  // Safe emotional state calculation
+  const getMessageEmotionalState = (message: ConversationMessage): AvatarEmotionalState => {
+    try {
+      // Direct emotion mapping
+      if (typeof message.emotion === 'string') {
+        switch (message.emotion) {
+          case 'celebratory': return 'celebrating';
+          case 'motivational': return 'motivated';
+          case 'wise': return 'content';
+          case 'supportive': return 'speaking';
+          default: break;
+        }
+      }
+      
+      // Check if user mentioned completing habits for celebration
+      const hasCompletionContext = messages.some(m => {
+        if (!m || !m.isUser) return false;
+        const raw = typeof m.content === 'string' ? m.content : String(m.content || '');
+        const content = raw.toLowerCase();
+        return content.includes('completed') || 
+               content.includes('did my habits') ||
+               content.includes('finished') ||
+               content.includes('done');
+      });
+      
+      const hasPositiveImpact = typeof message.vitalityImpact === 'number' && message.vitalityImpact > 0;
+      
+      if (hasCompletionContext && hasPositiveImpact) {
+        return 'celebrating';
+      }
+      
+      return 'speaking';
+    } catch (error) {
+      console.error('Error calculating emotional state:', error);
+      return 'neutral';
+    }
+  };
+
   // Use messages directly from store instead of local state - with safety checks
   const messages = (goalId && getGoalConversation && typeof getGoalConversation === 'function') 
     ? getGoalConversation(goalId) || [] 
@@ -100,9 +138,33 @@ export default function GoalChatScreen() {
   // Fallback: Create a goal object based on common dummy goal IDs
   if (!currentGoal && goalId) {
     const fallbackGoals = {
-      '1': { id: '1', title: 'Read 12 books this year', avatar: { name: 'Sage' } },
-      '2': { id: '2', title: 'Run a marathon', avatar: { name: 'Runner' } },
-      '3': { id: '3', title: 'Learn Spanish conversationally', avatar: { name: 'Lingua' } },
+      '1': { 
+        id: '1', 
+        title: 'Read 12 books this year', 
+        description: 'Build a consistent reading habit',
+        avatar: { name: 'Sage' },
+        progress: 0,
+        totalHabits: 3,
+        completedHabits: 0
+      },
+      '2': { 
+        id: '2', 
+        title: 'Run a marathon', 
+        description: 'Train for 26.2 miles',
+        avatar: { name: 'Runner' },
+        progress: 0,
+        totalHabits: 3,
+        completedHabits: 0
+      },
+      '3': { 
+        id: '3', 
+        title: 'Learn Spanish conversationally', 
+        description: 'Achieve fluency in Spanish',
+        avatar: { name: 'Lingua' },
+        progress: 0,
+        totalHabits: 3,
+        completedHabits: 0
+      },
     };
     
     if (fallbackGoals[goalId as keyof typeof fallbackGoals]) {
@@ -516,7 +578,7 @@ export default function GoalChatScreen() {
               </View>
               
               <Text style={styles.emptyStateTitle}>
-                Talk to {(currentGoal as any).avatar?.name || 'Your Companion'}
+                Talk to {typeof (currentGoal as any).avatar?.name === 'string' ? (currentGoal as any).avatar.name : 'Your Companion'}
               </Text>
               
               <Text style={styles.emptyStateSubtitle}>
@@ -564,22 +626,7 @@ export default function GoalChatScreen() {
                           animated
                           compact={true}
                           relationshipStage={getRelationshipStage()}
-                          emotionalState={
-                            message.emotion === 'celebratory' ? 'celebrating' : 
-                            message.emotion === 'motivational' ? 'motivated' :
-                            message.emotion === 'wise' ? 'content' :
-                            // Check if user mentioned completing habits for celebration
-                            (messages.some(m => {
-                              if (!m || !m.isUser) return false;
-                              const raw = typeof m.content === 'string' ? m.content : String(m.content || '');
-                              const content = raw.toLowerCase();
-                              return content.includes('completed') || 
-                                     content.includes('did my habits') ||
-                                     content.includes('finished') ||
-                                     content.includes('done');
-                            }) && message.vitalityImpact && message.vitalityImpact > 0) ? 'celebrating' :
-                            'speaking'
-                          }
+                          emotionalState={getMessageEmotionalState(message)}
                           isTyping={false}
                           recentActivity="message_sent"
                         />
@@ -604,12 +651,12 @@ export default function GoalChatScreen() {
                         styles.messageText,
                         message.isUser ? styles.userMessageText : styles.goalMessageText
                       ]}>
-                        {typeof message.content === 'string' ? message.content : String(message.content)}
+                        {typeof message.content === 'string' ? message.content : String(message.content || '')}
                       </Text>
                       {/* Only show timestamp on last message of group */}
                       {isLastInGroup && (
                         <Text style={styles.timestamp}>
-                          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {message.timestamp && !isNaN(message.timestamp) ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Invalid time'}
                         </Text>
                       )}
                     </View>
