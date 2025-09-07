@@ -20,6 +20,8 @@ import { GoalEnhancementCard } from '@/components/GoalEnhancementCard';
 import { PlantAvatar, PetAvatar, RobotAvatar, BaseAvatar } from '@/components/avatars';
 import { useGoalEnhancement } from '@/lib/goalEnhancement';
 import { isHabitCompletedOnDate } from '@/lib/db';
+import { AvatarStoryBadge } from '@/components/AvatarStoryBadge';
+import { AvatarStoryModal } from '@/components/AvatarStoryModal';
 
 interface Goal {
   id: string;
@@ -76,7 +78,10 @@ export default function GoalsScreen() {
     isHydrated, 
     avatar,
     getHabitStreak,
-    toggleHabitCompletion
+    toggleHabitCompletion,
+    getGoalStories,
+    getStoryProgress,
+    checkStoryUnlocks
   } = useAppStore();
 
   const categoryColors = {
@@ -91,6 +96,7 @@ export default function GoalsScreen() {
   const [loading, setLoading] = useState(true);
   const [showNewGoal, setShowNewGoal] = useState(false);
   const [showNewHabit, setShowNewHabit] = useState(false);
+  const [selectedGoalForStories, setSelectedGoalForStories] = useState<Goal | null>(null);
   const styles = createStyles(theme);
 
   // Load and process real data from store
@@ -173,6 +179,16 @@ export default function GoalsScreen() {
 
     loadGoalsAndHabits();
   }, [isHydrated, goalsWithIds, habitsWithIds, getHabitStreak]);
+  
+  // Check for story unlocks when goals are loaded
+  useEffect(() => {
+    if (!isHydrated || goals.length === 0) return;
+    
+    // Check story unlocks for all goals
+    goals.forEach(goal => {
+      checkStoryUnlocks(goal.id);
+    });
+  }, [isHydrated, goals, checkStoryUnlocks]);
 
   const activeGoals = goals.filter(g => g.isActive);
   const completedGoals = goals.filter(g => !g.isActive);
@@ -319,6 +335,17 @@ export default function GoalsScreen() {
             <Text style={styles.personalityText} numberOfLines={1}>
               &quot;Your {avatar.type} companion&quot;
             </Text>
+            
+            {/* Story Badge */}
+            <View style={styles.storyBadgeContainer}>
+              <AvatarStoryBadge
+                goalId={goal.id}
+                stories={getGoalStories(goal.id)}
+                progress={getStoryProgress(goal.id)}
+                size="medium"
+                onPress={() => setSelectedGoalForStories(goal)}
+              />
+            </View>
           </View>
         </View>
 
@@ -542,6 +569,21 @@ export default function GoalsScreen() {
         visible={showNewHabit}
         onClose={() => setShowNewHabit(false)}
       />
+      
+      {/* Avatar Story Modal */}
+      {selectedGoalForStories && (
+        <AvatarStoryModal
+          visible={!!selectedGoalForStories}
+          onClose={() => setSelectedGoalForStories(null)}
+          goalId={selectedGoalForStories.id}
+          goalTitle={selectedGoalForStories.title}
+          stories={getGoalStories(selectedGoalForStories.id)}
+          progress={getStoryProgress(selectedGoalForStories.id)}
+          avatarType={avatar.type}
+          avatarName={avatar.name}
+          avatarVitality={avatar.vitality}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -825,6 +867,10 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.text.secondary,
     fontStyle: 'italic',
     lineHeight: 18,
+  },
+  storyBadgeContainer: {
+    marginTop: theme.spacing.sm,
+    alignItems: 'flex-start',
   },
   habitsFooter: {
     flexDirection: 'row',

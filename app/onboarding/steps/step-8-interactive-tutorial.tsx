@@ -255,8 +255,8 @@ export default function InteractiveTutorialStep() {
           <View style={styles.completedSection}>
             <Text style={styles.completedTitle}>🎉 Tutorial Complete!</Text>
             <Text style={styles.completedMessage}>
-              Great job! You've learned how to complete habits with {avatarName}. 
-              They're excited to grow with you on your journey!
+              Great job! You&apos;ve learned how to complete habits with {avatarName}. 
+              They&apos;re excited to grow with you on your journey!
             </Text>
           </View>
         )}

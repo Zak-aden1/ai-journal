@@ -169,7 +169,7 @@ export default function FirstEntryStep() {
         <Animated.View style={[styles.header, animatedTitleStyle]}>
           <Text style={styles.title}>Your First Check-In ✨</Text>
           <Text style={styles.subtitle}>
-            This is where the magic happens - let's start your journaling journey!
+            This is where the magic happens - let&apos;s start your journaling journey!
           </Text>
         </Animated.View>
 

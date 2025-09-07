@@ -3,6 +3,7 @@ import { immer } from 'zustand/middleware/immer';
 import { upsertGoal, upsertHabit, insertEntry, listGoals, listHabitsByGoal, listEntries, saveGoalMeta, getGoalMeta, initializeDatabase, listHabitsWithIdsByGoal, listStandaloneHabits, listAllHabitsWithGoals, updateHabitGoalAssignment, deleteGoal as dbDeleteGoal, deleteHabit as dbDeleteHabit, markHabitComplete, unmarkHabitComplete, isHabitCompletedOnDate, calculateHabitStreak, HabitSchedule, HabitWithSchedule, filterHabitsForToday, sortHabitsByTime, migrateHabitsScheduling, listScheduledHabitsForGoal, listScheduledStandaloneHabits, EnhancedHabitData } from '@/lib/db';
 import { nextActionFrom } from '@/services/ai/suggestions';
 import { AvatarType, AvatarMemory } from '@/components/avatars/types';
+import { AvatarStory, StoryUnlockProgress, StoryUnlockNotification } from '@/types/avatarStories';
 import { generatePersonalizedResponse, updateAvatarMemory, getAvatarPersonality, smartMemoryUpdate, generateMotivationalInsight, analyzeUserPatterns } from '@/lib/avatarPersonality';
 import { AvatarRelationshipManager, createAvatarRelationship, RelationshipProgress, RelationshipMilestone } from '@/lib/avatarRelationships';
 
@@ -70,6 +71,11 @@ type AppState = {
   conversations: Record<string, ConversationMessage[]>; // goalId -> messages
   conversationInsights: Record<string, ConversationInsight[]>; // goalId -> insights
   
+  // Avatar Story System
+  avatarStories: Record<string, AvatarStory[]>; // goalId -> unlocked stories
+  storyProgress: Record<string, StoryUnlockProgress>; // goalId -> unlock progress
+  storyNotifications: StoryUnlockNotification[];
+  
   // Avatar system
   avatar: {
     type: AvatarType;
@@ -110,6 +116,14 @@ type AppState = {
   updateAvatarMemoryWithMilestone: (milestone: string) => void;
   updateAvatarMemoryWithActivity: (activityType: 'habit_completion' | 'goal_interaction' | 'journal_entry' | 'achievement', goalName?: string, habitType?: string) => void;
   getAvatarPatternAnalysis: () => ReturnType<typeof analyzeUserPatterns>;
+  
+  // Avatar Story System actions
+  checkStoryUnlocks: (goalId: string) => Promise<void>;
+  unlockAvatarStory: (goalId: string, milestoneType: string) => Promise<AvatarStory | null>;
+  getGoalStories: (goalId: string) => AvatarStory[];
+  getStoryProgress: (goalId: string) => StoryUnlockProgress;
+  markStoryNotificationRead: (notificationId: string) => void;
+  getUnreadStoryNotifications: () => StoryUnlockNotification[];
   
   // Relationship actions
   getAvatarRelationship: () => RelationshipProgress;
@@ -160,6 +174,11 @@ export const useAppStore = create<AppState>()(
     goalMeta: {},
     conversations: {},
     conversationInsights: {},
+    
+    // Avatar Story System
+    avatarStories: {},
+    storyProgress: {},
+    storyNotifications: [],
     avatar: {
       type: 'plant',
       name: 'Sage',
@@ -937,6 +956,131 @@ export const useAppStore = create<AppState>()(
       }
       
       return insights;
+    },
+    
+    // Avatar Story System actions
+    checkStoryUnlocks: async (goalId: string) => {
+      const state = get();
+      const { detectAvailableMilestones, createStoryUnlockNotification } = await import('@/lib/avatarStorySystem');
+      const { generateDynamicAvatarStory } = await import('@/lib/dynamicStoryGenerator');
+      
+      // Calculate current progress for the goal
+      const goalHabits = state.habitsWithIds[goalId] || [];
+      if (goalHabits.length === 0) return;
+      
+      // Get streak data for goal habits
+      const streaks = await Promise.all(
+        goalHabits.map(async (habit) => {
+          try {
+            const streak = await get().getHabitStreak(habit.id);
+            return streak.current;
+          } catch {
+            return 0;
+          }
+        })
+      );
+      
+      const maxStreak = Math.max(...streaks);
+      const completedToday = goalHabits.length; // Simplified - should check actual completion
+      const progress = Math.round((completedToday / goalHabits.length) * 100);
+      
+      const currentProgress: StoryUnlockProgress = {
+        goalId,
+        currentStreak: maxStreak,
+        longestStreak: maxStreak,
+        completionPercentage: progress,
+        totalHabits: goalHabits.length,
+        completedHabits: completedToday,
+        lastCompletedDate: Date.now(),
+        unlockedStories: (state.avatarStories[goalId] || []).map(s => s.milestoneType),
+        availableStories: []
+      };
+      
+      // Detect new milestones
+      const newMilestones = detectAvailableMilestones(currentProgress);
+      
+      // Generate stories for new milestones
+      for (const milestone of newMilestones) {
+        const goal = state.goalsWithIds.find(g => g.id === goalId);
+        if (!goal) continue;
+        
+        const config = {
+          goalId,
+          goalTitle: goal.title,
+          milestoneType: milestone,
+          avatarType: state.avatar.type,
+          avatarName: state.avatar.name,
+          avatarPersonality: {
+            enthusiasm: 7,
+            supportive: 8,
+            analytical: 5,
+            playful: 6,
+            patient: 9
+          },
+          contextData: {
+            currentStreak: maxStreak,
+            progressPercentage: progress,
+            recentHabits: goalHabits.map(h => h.title)
+          }
+        };
+        
+        const story = await generateDynamicAvatarStory(config);
+        const notification = createStoryUnlockNotification(story);
+        
+        set((s) => {
+          if (!s.avatarStories[goalId]) {
+            s.avatarStories[goalId] = [];
+          }
+          s.avatarStories[goalId].push(story);
+          s.storyNotifications.push(notification);
+          
+          // Update progress tracking
+          s.storyProgress[goalId] = {
+            ...currentProgress,
+            unlockedStories: [...currentProgress.unlockedStories, milestone],
+            availableStories: []
+          };
+        });
+      }
+    },
+    
+    unlockAvatarStory: async (goalId: string, milestoneType: string) => {
+      // Manual story unlock (if needed)
+      return null;
+    },
+    
+    getGoalStories: (goalId: string) => {
+      const state = get();
+      return state.avatarStories[goalId] || [];
+    },
+    
+    getStoryProgress: (goalId: string) => {
+      const state = get();
+      return state.storyProgress[goalId] || {
+        goalId,
+        currentStreak: 0,
+        longestStreak: 0,
+        completionPercentage: 0,
+        totalHabits: 0,
+        completedHabits: 0,
+        lastCompletedDate: 0,
+        unlockedStories: [],
+        availableStories: []
+      };
+    },
+    
+    markStoryNotificationRead: (notificationId: string) => {
+      set((s) => {
+        const notification = s.storyNotifications.find(n => n.id === notificationId);
+        if (notification) {
+          notification.isRead = true;
+        }
+      });
+    },
+    
+    getUnreadStoryNotifications: () => {
+      const state = get();
+      return state.storyNotifications.filter(n => !n.isRead);
     },
   }))
 );
