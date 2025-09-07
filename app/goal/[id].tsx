@@ -19,6 +19,8 @@ import { useTheme } from '@/hooks/useTheme';
 import { useAppStore } from '@/stores/app';
 import { AvatarRenderer } from '@/components/avatars';
 import { isHabitCompletedOnDate } from '@/lib/db';
+import { useGoalMilestones } from '@/hooks/useGoalMilestones';
+import { Modal } from 'react-native';
 
 interface Goal {
   id: string;
@@ -64,20 +66,33 @@ export default function GoalDetailPage() {
   const { theme } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  // Stable goal id for hooks
+  const goalIdParam = typeof id === 'string' ? id : '';
   
   // Get data from store
+  const store = useAppStore();
   const { 
     goalsWithIds, 
     habitsWithIds, 
     goalMeta,
     avatar,
     isHydrated,
-    getHabitStreak 
-  } = useAppStore();
+    getHabitStreak,
+    updateAvatarMemoryWithMilestone,
+  } = store;
 
   const [goal, setGoal] = useState<Goal | null>(null);
   const [loading, setLoading] = useState(true);
+  const [storyModal, setStoryModal] = useState<{ title: string; text: string } | null>(null);
   const styles = createStyles(theme);
+  // Companion milestones for this goal (declare early so hooks order stays stable)
+  const { milestones, loading: loadingMilestones, markUnlocked } = useGoalMilestones({
+    goalId: goalIdParam,
+    habitsWithIds,
+    getHabitStreak,
+    avatarMemory: avatar?.memory,
+    updateAvatarMemoryWithMilestone,
+  });
   
   // Animation values
   const progressWidth = useSharedValue(0);
@@ -416,33 +431,54 @@ export default function GoalDetailPage() {
           </TouchableOpacity>
         </View>
 
-        {/* Milestones Section */}
+        {/* Companion Milestones Section */}
         <View style={styles.milestonesSection}>
           <View style={styles.milestonesSectionHeader}>
             <Text style={styles.milestonesIcon}>⭐</Text>
-            <Text style={styles.milestonesSectionTitle}>Milestones</Text>
+            <Text style={styles.milestonesSectionTitle}>Companion Milestones</Text>
           </View>
           <View style={styles.milestonesCard}>
-            <View style={styles.milestoneItem}>
-              <View style={styles.milestoneCheckCompleted}>
-                <Text style={styles.milestoneCheckText}>✓</Text>
-              </View>
-              <Text style={styles.milestoneText}>Started daily habit routine</Text>
-            </View>
-            <View style={styles.milestoneItem}>
-              <View style={styles.milestoneCheckCompleted}>
-                <Text style={styles.milestoneCheckText}>✓</Text>
-              </View>
-              <Text style={styles.milestoneText}>Completed first month</Text>
-            </View>
-            <View style={styles.milestoneItem}>
-              <View style={styles.milestoneCheck}>
-                <Text style={styles.milestoneNumber}>3</Text>
-              </View>
-              <Text style={styles.milestoneTextPending}>Reach 80% completion</Text>
-            </View>
+            {loadingMilestones && (
+              <Text style={styles.milestoneTextPending}>Checking your progress…</Text>
+            )}
+            {!loadingMilestones && milestones.map((m) => (
+              <TouchableOpacity
+                key={m.key}
+                style={styles.milestoneItem}
+                activeOpacity={m.unlocked ? 0.8 : 1}
+                onPress={() => {
+                  if (!m.unlocked) return;
+                  setStoryModal({ title: m.title, text: m.narrative });
+                  markUnlocked(m.key); // persist unlock tag
+                }}
+              >
+                <View style={m.unlocked ? styles.milestoneCheckCompleted : styles.milestoneCheck}>
+                  <Text style={m.unlocked ? styles.milestoneCheckText : styles.milestoneNumber}>
+                    {m.unlocked ? '✓' : '🔒'}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={m.unlocked ? styles.milestoneText : styles.milestoneTextPending}>
+                    {m.unlocked ? m.title : m.condition}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
+
+        {/* Story Modal */}
+        <Modal visible={!!storyModal} transparent animationType="fade" onRequestClose={() => setStoryModal(null)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>{storyModal?.title}</Text>
+              <Text style={styles.modalText}>{storyModal?.text}</Text>
+              <TouchableOpacity style={styles.modalButton} onPress={() => setStoryModal(null)}>
+                <Text style={styles.modalButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
         
         {/* Habits Section */}
         {goal.habits.length > 0 && (
@@ -856,6 +892,47 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 16,
     color: theme.colors.text.secondary,
     flex: 1,
+  },
+  // Story modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: theme.colors.background.overlay,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: theme.spacing.lg,
+  },
+  modalCard: {
+    backgroundColor: theme.colors.background.secondary,
+    borderRadius: theme.radius,
+    padding: theme.spacing.xl,
+    borderWidth: 1,
+    borderColor: theme.colors.background.tertiary,
+    width: '92%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.md,
+    textAlign: 'center',
+  },
+  modalText: {
+    fontSize: 16,
+    color: theme.colors.text.secondary,
+    lineHeight: 22,
+    marginBottom: theme.spacing.lg,
+  },
+  modalButton: {
+    alignSelf: 'center',
+    backgroundColor: theme.colors.interactive.primary,
+    borderRadius: 24,
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.spacing.md,
+  },
+  modalButtonText: {
+    color: theme.colors.text.inverse,
+    fontSize: 16,
+    fontWeight: '700',
   },
 
   habitsSection: {
