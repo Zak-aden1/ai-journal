@@ -1,8 +1,148 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated, PanResponder } from 'react-native';
+import React, { useMemo, useRef, useState, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, FlatList, useWindowDimensions } from 'react-native';
 import { AvatarRenderer } from '@/components/avatars';
 import { useTheme } from '@/hooks/useTheme';
 import type { AvatarType } from '@/components/avatars/types';
+import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, interpolate, Extrapolate, SharedValue } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+
+// Separate component for carousel items to properly use hooks
+const CarouselItem = React.memo(({ 
+  item, 
+  index, 
+  scrollX, 
+  interval, 
+  cardWidth, 
+  GAP, 
+  styles, 
+  theme 
+}: {
+  item: any;
+  index: number;
+  scrollX: SharedValue<number>;
+  interval: number;
+  cardWidth: number;
+  GAP: number;
+  styles: any;
+  theme: any;
+}) => {
+  const itemStyle = useAnimatedStyle(() => {
+    const center = index * interval;
+    const d = (scrollX.value - center) / interval;
+    const ad = Math.abs(d);
+    const scale = interpolate(ad, [0, 1, 2], [1, 0.95, 0.9], Extrapolate.CLAMP);
+    const translateY = interpolate(ad, [0, 1], [0, 8], Extrapolate.CLAMP);
+    const rotateY = interpolate(d, [-1, 0, 1], [6, 0, -6], Extrapolate.CLAMP);
+    const opacity = interpolate(ad, [0, 1, 2], [1, 0.92, 0.8], Extrapolate.CLAMP);
+    const shadowOpacity = interpolate(ad, [0, 1], [0.18, 0.08], Extrapolate.CLAMP);
+    const shadowRadius = interpolate(ad, [0, 1], [12, 6], Extrapolate.CLAMP);
+    const elevation = interpolate(ad, [0, 1], [8, 3], Extrapolate.CLAMP);
+    return {
+      transform: [
+        { scale },
+        { translateY },
+        { rotateY: `${rotateY}deg` },
+      ],
+      opacity,
+      shadowOpacity,
+      shadowRadius,
+      elevation,
+    };
+  });
+
+  const parallaxStyle = useAnimatedStyle(() => {
+    const center = index * interval;
+    const d = (scrollX.value - center) / interval;
+    const px = interpolate(d, [-1, 0, 1], [12, 0, -12], Extrapolate.CLAMP);
+    return { transform: [{ translateX: px }] };
+  });
+
+  const displayAvatar = item.avatar || { type: 'plant' as AvatarType, name: 'Companion', vitality: 50 };
+  const vitalityColor = displayAvatar.vitality >= 80 ? theme.colors.status.success
+    : displayAvatar.vitality >= 60 ? theme.colors.primary
+    : displayAvatar.vitality >= 40 ? theme.colors.status.warning
+    : theme.colors.status.error;
+  const progressPercentage = item.totalHabits > 0 ? Math.round((item.completedHabits / item.totalHabits) * 100) : 0;
+  const healthStatus = displayAvatar.vitality >= 80 ? { status: 'Thriving', emoji: '🌟' }
+    : displayAvatar.vitality >= 60 ? { status: 'Growing', emoji: '🌱' }
+    : displayAvatar.vitality >= 40 ? { status: 'Stable', emoji: '😊' }
+    : displayAvatar.vitality >= 20 ? { status: 'Struggling', emoji: '😔' }
+    : { status: 'Needs care', emoji: '🆘' };
+
+  return (
+    <Animated.View style={[{ width: cardWidth, marginRight: GAP }, styles.goalCard, { borderColor: vitalityColor + '30' }, itemStyle]}>
+      <View style={[styles.statusBadge, { backgroundColor: vitalityColor + '20' }]}>
+        <Text style={styles.statusEmoji}>{healthStatus.emoji}</Text>
+        <Text style={[styles.statusText, { color: vitalityColor }]}>{healthStatus.status}</Text>
+      </View>
+      <View style={styles.cardContent}>
+        <Animated.View style={[styles.avatarSection, parallaxStyle]}>
+          <AvatarRenderer type={displayAvatar.type} vitality={displayAvatar.vitality} size={80} animated={false} />
+          <Text style={styles.avatarName}>{displayAvatar.name}</Text>
+          <Text style={[styles.vitalityText, { color: vitalityColor }]}>{displayAvatar.vitality}% Vitality</Text>
+        </Animated.View>
+        <View style={styles.goalInfo}>
+          <Text style={styles.goalTitle} numberOfLines={2}>{item.title}</Text>
+          <View style={styles.progressSection}>
+            <Text style={styles.progressLabel}>Today&apos;s Progress</Text>
+            <View style={styles.progressRow}>
+              <Text style={styles.progressStats}>{item.completedHabits}/{item.totalHabits} habits</Text>
+              <Text style={[styles.progressPercentage, { color: vitalityColor }]}>{progressPercentage}%</Text>
+            </View>
+            <View style={styles.progressBarContainer}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${progressPercentage}%`, backgroundColor: vitalityColor }]} />
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Animated.View>
+  );
+});
+
+CarouselItem.displayName = 'CarouselItem';
+
+// Separate component for pagination dots
+const PaginationDot = React.memo(({ 
+  index, 
+  currentIndex, 
+  scrollX, 
+  interval, 
+  styles, 
+  theme 
+}: {
+  index: number;
+  currentIndex: number;
+  scrollX: SharedValue<number>;
+  interval: number;
+  styles: any;
+  theme: any;
+}) => {
+  const dotStyle = useAnimatedStyle(() => {
+    const center = index * interval;
+    const d = (scrollX.value - center) / interval;
+    const ad = Math.abs(d);
+    const width = interpolate(ad, [0, 1], [16, 8], Extrapolate.CLAMP);
+    const scale = interpolate(ad, [0, 1], [1.1, 1], Extrapolate.CLAMP);
+    const opacity = interpolate(ad, [0, 1], [1, 0.6], Extrapolate.CLAMP);
+    return { width, transform: [{ scale }], opacity };
+  });
+
+  const isActive = index === currentIndex;
+  return (
+    <Animated.View
+      style={[
+        styles.paginationDot,
+        isActive && styles.activePaginationDot,
+        isActive && { backgroundColor: theme.colors.primary },
+        dotStyle,
+      ]}
+    />
+  );
+});
+
+PaginationDot.displayName = 'PaginationDot';
 
 interface FeaturedGoalCarouselProps {
   goals: {
@@ -20,142 +160,52 @@ interface FeaturedGoalCarouselProps {
   onGoalPress?: (goalId: string) => void;
 }
 
-export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
-  goals,
-  primaryGoalId,
-  onGoalPress,
-}) => {
+export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({ goals, primaryGoalId, onGoalPress }) => {
   const { theme } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  
+  const { width } = useWindowDimensions();
+  const listRef = useRef<FlatList>(null);
+
   const [currentIndex, setCurrentIndex] = useState(() => {
     const primaryIndex = goals.findIndex(goal => goal.id === primaryGoalId);
     return primaryIndex >= 0 ? primaryIndex : 0;
   });
-  
-  // Enhanced animation refs with physics
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const panValue = useRef(new Animated.Value(0)).current;
-  
-  const navigateToGoal = useCallback((direction: 'left' | 'right') => {
-    if (goals.length <= 1) return;
-    
-    const newIndex = direction === 'left' 
-      ? (currentIndex - 1 + goals.length) % goals.length
-      : (currentIndex + 1) % goals.length;
-    
-    // Enhanced transition with spring physics
-    const targetValue = direction === 'left' ? 50 : -50;
-    
-    Animated.sequence([
-      // Slight movement + scale for anticipation
-      Animated.parallel([
-        Animated.spring(panValue, {
-          toValue: targetValue * 0.3,
-          useNativeDriver: false,
-          tension: 300,
-          friction: 20,
-        }),
-        Animated.spring(scaleAnim, {
-          toValue: 0.95,
-          useNativeDriver: false,
-          tension: 300,
-          friction: 20,
-        }),
-      ]),
-      // Spring back with overshoot
-      Animated.parallel([
-        Animated.spring(panValue, {
-          toValue: 0,
-          useNativeDriver: false,
-          tension: 150,
-          friction: 12,
-          restDisplacementThreshold: 0.1,
-        }),
-        Animated.spring(scaleAnim, {
-          toValue: 1.02,
-          useNativeDriver: false,
-          tension: 150,
-          friction: 8,
-        }),
-      ]),
-      // Settle
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        useNativeDriver: false,
-        tension: 200,
-        friction: 10,
-      }),
-    ]).start(() => {
-      const newGoal = goals[newIndex];
-      onGoalPress?.(newGoal.id);
-    });
-    
-    // Update index immediately for smooth UX
-    setCurrentIndex(newIndex);
-  }, [currentIndex, goals, onGoalPress, panValue, scaleAnim]);
 
-  // Enhanced PanResponder with momentum and magnetic snapping
-  const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gestureState) => {
-      return Math.abs(gestureState.dx) > 15 && Math.abs(gestureState.dy) < 60;
+  // Layout + snapping
+  const SIDE_PADDING = theme.spacing.lg;
+  const GAP = theme.spacing.sm;
+  const cardWidth = width - SIDE_PADDING * 2;
+  const interval = cardWidth + GAP;
+
+  // Scroll-driven animation values
+  const scrollX = useSharedValue(currentIndex * interval);
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      scrollX.value = e.contentOffset.x;
     },
-    onPanResponderGrant: () => {
-      panValue.setOffset(panValue._value);
-      panValue.setValue(0);
-      // Subtle scale feedback when starting gesture
-      Animated.spring(scaleAnim, {
-        toValue: 0.98,
-        useNativeDriver: false,
-        tension: 300,
-        friction: 20,
-      }).start();
-    },
-    onPanResponderMove: (_, gestureState) => {
-      // Limit pan distance with resistance at edges
-      const maxDistance = 120;
-      const resistance = 0.7;
-      let clampedDx = gestureState.dx;
-      
-      if (Math.abs(gestureState.dx) > maxDistance) {
-        const excess = Math.abs(gestureState.dx) - maxDistance;
-        const sign = gestureState.dx > 0 ? 1 : -1;
-        clampedDx = sign * (maxDistance + excess * resistance);
-      }
-      
-      panValue.setValue(clampedDx);
-    },
-    onPanResponderRelease: (_, gestureState) => {
-      panValue.flattenOffset();
-      
-      // Calculate velocity-based threshold for more natural feel
-      const velocity = Math.abs(gestureState.vx);
-      const distance = Math.abs(gestureState.dx);
-      const threshold = Math.max(40, Math.min(80, 40 + velocity * 20));
-      
-      if (distance > threshold && goals.length > 1) {
-        const direction = gestureState.dx > 0 ? 'left' : 'right';
-        navigateToGoal(direction);
-      } else {
-        // Magnetic snap back to center with overshoot
-        Animated.parallel([
-          Animated.spring(panValue, {
-            toValue: 0,
-            useNativeDriver: false,
-            tension: 200,
-            friction: 15,
-            velocity: -gestureState.vx * 0.1, // Use release velocity
-          }),
-          Animated.spring(scaleAnim, {
-            toValue: 1,
-            useNativeDriver: false,
-            tension: 200,
-            friction: 15,
-          }),
-        ]).start();
-      }
-    },
-  }), [goals.length, navigateToGoal, panValue, scaleAnim]);
+  });
+
+
+  const handleMomentumEnd = (e: any) => {
+    const x = e.nativeEvent.contentOffset.x;
+    const newIndex = Math.round(x / interval);
+    if (newIndex !== currentIndex) {
+      setCurrentIndex(newIndex);
+      onGoalPress?.(goals[newIndex]?.id);
+      Haptics.selectionAsync();
+    }
+  };
+
+  const scrollToIndex = useCallback((nextIndex: number) => {
+    if (!listRef.current) return;
+    const clamped = Math.max(0, Math.min(nextIndex, goals.length - 1));
+    listRef.current.scrollToOffset({ offset: clamped * interval, animated: true });
+  }, [goals.length, interval]);
+
+  const handleButtonNavigate = useCallback((direction: 'left' | 'right') => {
+    const next = direction === 'left' ? currentIndex - 1 : currentIndex + 1;
+    scrollToIndex(next);
+  }, [currentIndex, scrollToIndex]);
   
 
   const currentGoal = goals[currentIndex];
@@ -169,30 +219,7 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
     );
   }
 
-  const avatar = currentGoal.avatar || {
-    type: 'plant' as AvatarType,
-    name: 'Companion',
-    vitality: 50,
-  };
 
-  const getVitalityColor = (vitality: number) => {
-    if (vitality >= 80) return theme.colors.status.success;
-    if (vitality >= 60) return theme.colors.primary;
-    if (vitality >= 40) return theme.colors.status.warning;
-    return theme.colors.status.error;
-  };
-
-  const getHealthStatus = (vitality: number) => {
-    if (vitality >= 80) return { status: 'Thriving', emoji: '🌟' };
-    if (vitality >= 60) return { status: 'Growing', emoji: '🌱' };
-    if (vitality >= 40) return { status: 'Stable', emoji: '😊' };
-    if (vitality >= 20) return { status: 'Struggling', emoji: '😔' };
-    return { status: 'Needs care', emoji: '🆘' };
-  };
-
-  const vitalityColor = getVitalityColor(avatar.vitality);
-  const healthStatus = getHealthStatus(avatar.vitality);
-  const progressPercentage = currentGoal.totalHabits > 0 ? Math.round((currentGoal.completedHabits / currentGoal.totalHabits) * 100) : 0;
 
   const getContextualGreeting = () => {
     const hour = new Date().getHours();
@@ -219,93 +246,48 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
         {goals.length > 1 && (
           <TouchableOpacity
             style={[styles.navButton, styles.leftNavButton]}
-            onPress={() => navigateToGoal('left')}
+            onPress={() => handleButtonNavigate('left')}
             activeOpacity={0.7}
           >
             <Text style={styles.navArrow}>←</Text>
           </TouchableOpacity>
         )}
 
-        {/* Goal Card */}
-        <Animated.View 
-          {...panResponder.panHandlers}
-          style={[
-            styles.goalCard,
-            { 
-              borderColor: vitalityColor + '30',
-              transform: [
-                { translateX: panValue },
-                { scale: scaleAnim }
-              ]
-            }
-          ]}
-        >
-          {/* Status Badge */}
-          <View style={[styles.statusBadge, { backgroundColor: vitalityColor + '20' }]}>
-            <Text style={styles.statusEmoji}>{healthStatus.emoji}</Text>
-            <Text style={[styles.statusText, { color: vitalityColor }]}>
-              {healthStatus.status}
-            </Text>
-          </View>
-
-          {/* Main Content */}
-          <View style={styles.cardContent}>
-            {/* Avatar Section */}
-            <View style={styles.avatarSection}>
-              <AvatarRenderer
-                type={avatar.type}
-                vitality={avatar.vitality}
-                size={80}
-                animated={false}
-              />
-              <Text style={styles.avatarName}>{avatar.name}</Text>
-              <Text style={[styles.vitalityText, { color: vitalityColor }]}>
-                {avatar.vitality}% Vitality
-              </Text>
-            </View>
-
-            {/* Goal Info */}
-            <View style={styles.goalInfo}>
-              <Text style={styles.goalTitle} numberOfLines={2}>
-                {currentGoal.title}
-              </Text>
-              
-              {/* Progress Section */}
-              <View style={styles.progressSection}>
-                <Text style={styles.progressLabel}>Today&apos;s Progress</Text>
-                <View style={styles.progressRow}>
-                  <Text style={styles.progressStats}>
-                    {currentGoal.completedHabits}/{currentGoal.totalHabits} habits
-                  </Text>
-                  <Text style={[styles.progressPercentage, { color: vitalityColor }]}>
-                    {progressPercentage}%
-                  </Text>
-                </View>
-                
-                {/* Progress Bar */}
-                <View style={styles.progressBarContainer}>
-                  <View style={styles.progressBar}>
-                    <View 
-                      style={[
-                        styles.progressFill,
-                        { 
-                          width: `${progressPercentage}%`,
-                          backgroundColor: vitalityColor 
-                        }
-                      ]} 
-                    />
-                  </View>
-                </View>
-              </View>
-            </View>
-          </View>
-        </Animated.View>
+        {/* Carousel */}
+        <Animated.FlatList
+          ref={listRef}
+          data={goals}
+          horizontal
+          keyExtractor={(item) => item.id}
+          showsHorizontalScrollIndicator={false}
+          initialScrollIndex={currentIndex}
+          getItemLayout={(_, index) => ({ length: interval, offset: interval * index, index })}
+          contentContainerStyle={{ paddingHorizontal: SIDE_PADDING }}
+          snapToInterval={interval}
+          decelerationRate="fast"
+          bounces={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          onMomentumScrollEnd={handleMomentumEnd}
+          renderItem={({ item, index }) => (
+            <CarouselItem
+              item={item}
+              index={index}
+              scrollX={scrollX}
+              interval={interval}
+              cardWidth={cardWidth}
+              GAP={GAP}
+              styles={styles}
+              theme={theme}
+            />
+          )}
+        />
 
         {/* Right Navigation Arrow */}
         {goals.length > 1 && (
           <TouchableOpacity
             style={[styles.navButton, styles.rightNavButton]}
-            onPress={() => navigateToGoal('right')}
+            onPress={() => handleButtonNavigate('right')}
             activeOpacity={0.7}
           >
             <Text style={styles.navArrow}>→</Text>
@@ -317,13 +299,14 @@ export const FeaturedGoalCarousel: React.FC<FeaturedGoalCarouselProps> = ({
       {goals.length > 1 && (
         <View style={styles.paginationContainer}>
           {goals.map((_, index) => (
-            <View
+            <PaginationDot
               key={index}
-              style={[
-                styles.paginationDot,
-                index === currentIndex && styles.activePaginationDot,
-                index === currentIndex && { backgroundColor: vitalityColor }
-              ]}
+              index={index}
+              currentIndex={currentIndex}
+              scrollX={scrollX}
+              interval={interval}
+              styles={styles}
+              theme={theme}
             />
           ))}
         </View>
