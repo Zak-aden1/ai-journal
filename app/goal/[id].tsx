@@ -23,6 +23,7 @@ import { initializeChatAI } from '@/services/ai/chat';
 import { getAIConfig } from '@/services/ai/config';
 import { generateDailyThoughts, getTodaysThoughts, getTimeUntilNextGeneration, canGenerateDailyThoughts } from '@/services/ai/thoughts';
 import type { GoalContext } from '@/services/ai/chat';
+import { AIThoughtCard } from '@/components/ai/AIThoughtCard';
 import { isHabitCompletedOnDate } from '@/lib/db';
 
 interface Goal {
@@ -440,47 +441,18 @@ export default function GoalDetailPage() {
 
         {/* Avatar's Thoughts */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionIcon}>
-              <Text style={styles.sectionEmoji}>✨</Text>
-            </View>
-            <Text style={styles.sectionTitle}>{avatar.name}'s Thoughts</Text>
-          </View>
-          <View style={[styles.card, styles.thoughtsCard]}>
-            {avatarThought ? (
-              <>
-                <Text style={styles.thoughtsText}>{avatarThought.text}</Text>
-                <View style={styles.thoughtsFooter}>
-                  <Text style={styles.thoughtsMeta}>Updated today</Text>
-                  {!canGenerateThought && nextAvailableIn && (
-                    <Text style={styles.thoughtsMeta}>· New in {nextAvailableIn}</Text>
-                  )}
-                </View>
-              </>
-            ) : thoughtLoading ? (
-              <>
-                <View style={styles.thoughtsSkeletonLine} />
-                <View style={[styles.thoughtsSkeletonLine, { width: '80%' }]} />
-              </>
-            ) : (
-              <>
-                <Text style={styles.thoughtsEmpty}>No thoughts yet for today.</Text>
-                <TouchableOpacity
-                  style={[styles.generateButton, !canGenerateThought && styles.generateButtonDisabled]}
-                  onPress={handleGenerateThoughts}
-                  disabled={!canGenerateThought || thoughtLoading}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.generateButtonText}>
-                    {canGenerateThought ? 'Generate today\'s thoughts' : (nextAvailableIn ? `Available in ${nextAvailableIn}` : 'Come back tomorrow')}
-                  </Text>
-                </TouchableOpacity>
-                {thoughtError && (
-                  <Text style={styles.errorInline}>{thoughtError}</Text>
-                )}
-              </>
-            )}
-          </View>
+          <AIThoughtCard
+            avatarName={avatar.name}
+            text={avatarThought?.text}
+            updatedAt={avatarThought?.updatedAt}
+            loading={thoughtLoading}
+            error={thoughtError || undefined}
+            canGenerate={canGenerateThought}
+            nextAvailableIn={nextAvailableIn || undefined}
+            accentColor={categoryColor}
+            provenance={[`Streak ${Math.max(...goal.habits.map(h => h.streak), 0)}`, `${goal.completedHabits}/${goal.totalHabits} today`]}
+            onGenerate={handleGenerateThoughts}
+          />
         </View>
 
         {/* Avatar Companion Section */}
@@ -1111,56 +1083,5 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.text.secondary,
     fontSize: 16,
     fontWeight: '600',
-  },
-  // Thoughts styles
-  thoughtsCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: theme.colors.primary,
-  },
-  thoughtsText: {
-    fontSize: 16,
-    color: theme.colors.text.primary,
-    lineHeight: 22,
-    marginBottom: theme.spacing.sm,
-  },
-  thoughtsFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.xs,
-  },
-  thoughtsMeta: {
-    fontSize: 12,
-    color: theme.colors.text.secondary,
-  },
-  thoughtsEmpty: {
-    fontSize: 14,
-    color: theme.colors.text.secondary,
-    marginBottom: theme.spacing.md,
-  },
-  generateButton: {
-    backgroundColor: theme.colors.interactive.primary,
-    paddingVertical: theme.spacing.md,
-    paddingHorizontal: theme.spacing.lg,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-  },
-  generateButtonDisabled: {
-    opacity: 0.6,
-  },
-  generateButtonText: {
-    color: theme.colors.text.inverse,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  thoughtsSkeletonLine: {
-    height: 14,
-    backgroundColor: theme.colors.background.tertiary,
-    borderRadius: 8,
-    marginBottom: theme.spacing.sm,
-  },
-  errorInline: {
-    marginTop: theme.spacing.sm,
-    color: theme.colors.text.secondary,
-    fontSize: 12,
   },
 });
