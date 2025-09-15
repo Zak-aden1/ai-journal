@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,34 +6,63 @@ import {
   StyleSheet,
   SafeAreaView,
   ScrollView,
-  RefreshControl
+  Modal,
+  Alert,
+  Animated,
+  SectionList
 } from 'react-native';
+import { Audio } from 'expo-av';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/hooks/useTheme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppStore } from '@/stores/app';
 import { FloatingActionButton } from '@/components/FloatingActionButton';
 import { JournalEntryModal } from '@/components/JournalEntryModal';
-import { AvatarRenderer } from '@/components/avatars';
+import { QuickMoodBubbles } from '@/components/QuickMoodBubbles';
+import { QuickMoodEntryModal } from '@/components/QuickMoodEntryModal';
+import { VoiceToTextRecorder } from '@/components/VoiceToTextRecorder';
+import { DeeperAnalysisModal } from '@/components/DeeperAnalysisModal';
+import { generateSummaryTitle } from '@/lib/summaryGenerator';
 
 type TimeframeFilter = 'all' | 'week' | 'month' | 'year';
 type MoodFilter = '😊' | '😐' | '😔' | '😤' | '😍' | 'all';
 
 export default function AuthenticJournalScreen() {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   
   const { 
     submitJournalEntry, 
-    entries, 
-    avatar,
-    getAvatarResponse
+    entries,
+    deleteEntry
   } = useAppStore();
   
-  const scrollViewRef = useRef<ScrollView>(null);
+  const listRef = useRef<SectionList<any>>(null);
   const [showJournalEntry, setShowJournalEntry] = useState(false);
+  const [showQuickMoodEntry, setShowQuickMoodEntry] = useState(false);
+  const [showVoiceRecording, setShowVoiceRecording] = useState(false);
+  const [showDeeperAnalysis, setShowDeeperAnalysis] = useState(false);
+  const [selectedEntry, setSelectedEntry] = useState<any>(null);
+  const [cardAnimations] = useState<Map<string, Animated.Value>>(new Map());
+  const [expansionAnimations] = useState<Map<string, Animated.Value>>(new Map());
+  const [hintPulse] = useState(new Animated.Value(1));
+  const [showQuickActions, setShowQuickActions] = useState<string | null>(null);
+  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
+  const [selectedQuickMood, setSelectedQuickMood] = useState<{ mood: '😊' | '😐' | '😔' | '😤' | '😍' | null; label: string }>({ mood: null, label: '' });
   const [timeframeFilter, setTimeframeFilter] = useState<TimeframeFilter>('all');
   const [moodFilter, setMoodFilter] = useState<MoodFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [playingEntryId, setPlayingEntryId] = useState<string | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+    };
+  }, []);
 
   // Filter journal entries (only free_journal type)
   const journalEntries = entries.filter(entry => entry.type === 'free_journal');
@@ -58,8 +87,8 @@ export default function AuthenticJournalScreen() {
       filtered = filtered.filter(entry => entry.mood === moodFilter);
     }
     
-    // Sort by newest first
-    return filtered.sort((a, b) => b.createdAt - a.createdAt);
+    // Sort by newest first (non-mutating)
+    return [...filtered].sort((a, b) => b.createdAt - a.createdAt);
   }, [journalEntries, timeframeFilter, moodFilter]);
 
   // Group entries by date for better organization
@@ -77,6 +106,15 @@ export default function AuthenticJournalScreen() {
     return groups;
   }, [filteredEntries]);
 
+  // Build SectionList data from groups
+  const sections = useMemo(() => {
+    // Sort dates descending
+    const entries = Object.entries(groupedEntries).sort(([a], [b]) => {
+      return new Date(b).getTime() - new Date(a).getTime();
+    });
+    return entries.map(([date, data]) => ({ title: date, data }));
+  }, [groupedEntries]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     // Simulate refresh - in real app this might sync with backend
@@ -90,63 +128,386 @@ export default function AuthenticJournalScreen() {
       setShowJournalEntry(false);
     } catch (error) {
       console.error('Failed to save journal entry:', error);
+      // Show user-friendly error message
+      Alert.alert(
+        'Save Failed', 
+        'Unable to save your journal entry. Please try again.',
+        [{ text: 'OK' }]
+      );
     }
   };
 
+  const handleQuickMoodSelect = (mood: '😊' | '😐' | '😔' | '😤' | '😍', label: string) => {
+    setSelectedQuickMood({ mood, label });
+    setShowQuickMoodEntry(true);
+  };
+
+  const handleQuickMoodSave = async (mood: '😊' | '😐' | '😔' | '😤' | '😍', text?: string) => {
+    try {
+      const entryText = text || `Feeling ${selectedQuickMood.label.toLowerCase()} right now`;
+      await submitJournalEntry(entryText, mood);
+      setShowQuickMoodEntry(false);
+      setSelectedQuickMood({ mood: null, label: '' });
+    } catch (error) {
+      console.error('Failed to save quick mood entry:', error);
+      Alert.alert(
+        'Save Failed', 
+        'Unable to save your mood entry. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const handleVoiceRecordingComplete = async (audioUri: string, transcription?: string) => {
+    try {
+      const entryText = transcription || 'Voice note recorded';
+      await submitJournalEntry(entryText, undefined, audioUri);
+      setShowVoiceRecording(false);
+    } catch (error) {
+      console.error('Failed to save voice entry:', error);
+      Alert.alert(
+        'Save Failed', 
+        'Unable to save your voice entry. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const handleDeeperAnalysis = async (entry: any) => {
+    // Haptic feedback for AI button press
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setSelectedEntry(entry);
+    setShowDeeperAnalysis(true);
+  };
+
+  const toggleEntryExpansion = async (entryId: string) => {
+    // Haptic feedback
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    const newExpanded = new Set(expandedEntries);
+    const isExpanding = !newExpanded.has(entryId);
+    
+    if (newExpanded.has(entryId)) {
+      newExpanded.delete(entryId);
+    } else {
+      newExpanded.add(entryId);
+    }
+    
+    // Animate expansion/collapse with spring physics
+    const expansionAnim = getExpansionAnimation(entryId);
+    Animated.spring(expansionAnim, {
+      toValue: isExpanding ? 1 : 0,
+      tension: 100,
+      friction: 8,
+      useNativeDriver: false, // Height animations need layout
+    }).start();
+    
+    setExpandedEntries(newExpanded);
+  };
+
+  const getCardAnimation = (entryId: string) => {
+    if (!cardAnimations.has(entryId)) {
+      cardAnimations.set(entryId, new Animated.Value(1));
+    }
+    return cardAnimations.get(entryId)!;
+  };
+
+  const getExpansionAnimation = (entryId: string) => {
+    if (!expansionAnimations.has(entryId)) {
+      const isExpanded = expandedEntries.has(entryId);
+      expansionAnimations.set(entryId, new Animated.Value(isExpanded ? 1 : 0));
+    }
+    return expansionAnimations.get(entryId)!;
+  };
+
+  const animateCardPress = (entryId: string, callback: () => void) => {
+    const animation = getCardAnimation(entryId);
+    
+    Animated.sequence([
+      Animated.timing(animation, {
+        toValue: 0.98,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(animation, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    
+    callback();
+  };
+
+  const handleLongPress = async (entry: any) => {
+    // Strong haptic feedback for long press
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setShowQuickActions(entry.id);
+  };
+
+  const handleQuickAction = async (action: string, entry: any) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowQuickActions(null);
+    
+    switch (action) {
+      case 'edit':
+        // TODO: Implement edit functionality
+        console.log('Edit entry:', entry.id);
+        break;
+      case 'delete':
+        Alert.alert(
+          'Delete Entry',
+          'Are you sure you want to permanently delete this entry?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Delete', 
+              style: 'destructive', 
+              onPress: async () => {
+                try {
+                  await deleteEntry(entry.id);
+                  await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                } catch (e) {
+                  console.error('Failed to delete entry', e);
+                  Alert.alert('Delete Failed', 'Unable to delete the entry. Please try again.');
+                }
+              }
+            }
+          ]
+        );
+        break;
+      case 'share':
+        // TODO: Implement share functionality
+        console.log('Share entry:', entry.id);
+        break;
+      case 'analyze':
+        handleDeeperAnalysis(entry);
+        break;
+    }
+  };
+
+  // Subtle pulse animation for expand hints
+  React.useEffect(() => {
+    const pulseAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(hintPulse, {
+          toValue: 1.05,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(hintPulse, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    
+    pulseAnimation.start();
+    
+    return () => pulseAnimation.stop();
+  }, [hintPulse]);
+
+  const getMoodAccentColor = (mood?: string) => {
+    const moodColors = {
+      '😊': '#FFD700', // Happy - Gold
+      '😐': '#87CEEB', // Neutral - Sky Blue
+      '😔': '#B0C4DE', // Sad - Light Steel Blue
+      '😤': '#FF6B6B', // Frustrated - Coral
+      '😍': '#98FB98'  // Grateful - Pale Green
+    };
+    return moodColors[mood as keyof typeof moodColors] || theme.colors.primary;
+  };
+
   const renderJournalEntry = (entry: any) => {
-    const avatarResponse = getAvatarResponse('general');
+    const isExpanded = expandedEntries.has(entry.id);
+    const summaryTitle = generateSummaryTitle(entry.text, entry.mood);
+    const accentColor = getMoodAccentColor(entry.mood);
+    
+    const cardScale = getCardAnimation(entry.id);
+    const expansionAnim = getExpansionAnimation(entry.id);
     
     return (
-      <View key={entry.id} style={styles.entryCard}>
+      <TouchableOpacity
+        key={entry.id}
+        onLongPress={() => handleLongPress(entry)}
+        delayLongPress={500}
+        activeOpacity={1}
+      >
+        <Animated.View 
+          style={[
+            styles.entryCard,
+            entry.mood && { borderLeftColor: accentColor, borderLeftWidth: 4 },
+            { transform: [{ scale: cardScale }] }
+          ]}
+        >
+        {/* Header with mood, time, and voice indicator */}
         <View style={styles.entryHeader}>
           <View style={styles.entryMeta}>
             {entry.mood && (
-              <View style={styles.moodIcon}>
-                <Text style={styles.moodEmoji}>{entry.mood}</Text>
-              </View>
+              <Text style={styles.entryMoodEmoji}>{entry.mood}</Text>
             )}
-            <View style={styles.entryInfo}>
-              <Text style={styles.entryTime}>
-                {new Date(entry.createdAt).toLocaleDateString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                  hour12: true
-                })}
-              </Text>
-              {entry.voiceRecordingUri && (
-                <View style={styles.voiceIndicator}>
-                  <Text style={styles.voiceIcon}>🎤</Text>
-                </View>
-              )}
-            </View>
-          </View>
-        </View>
-        
-        <Text style={styles.entryText}>
-          {entry.text || 'Voice note recorded'}
-        </Text>
-        
-        {/* Supportive Avatar Response */}
-        <View style={styles.avatarResponse}>
-          <View style={styles.avatarResponseHeader}>
-            <View style={styles.miniAvatar}>
-              <AvatarRenderer 
-                type={avatar.type} 
-                vitality={avatar.vitality} 
-                size={24} 
-                animated={false} 
-              />
-            </View>
-            <Text style={styles.avatarResponseTitle}>
-              {avatar.name} reflects
+            <Text style={styles.entryTime}>
+              {new Date(entry.createdAt).toLocaleTimeString(undefined, {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+              })}
             </Text>
+            {entry.voiceRecordingUri && (
+              <TouchableOpacity 
+                style={styles.voiceIndicator}
+                onPress={() => toggleVoicePlayback(entry)}
+                accessibilityRole="button"
+                accessibilityLabel={playingEntryId === entry.id ? 'Pause voice note' : 'Play voice note'}
+              >
+                <Text style={styles.voiceIcon}>
+                  {playingEntryId === entry.id ? '⏸' : '▶'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
-          <Text style={styles.avatarResponseText}>
-            {avatarResponse}
-          </Text>
+          
+          {/* Subtle Deeper Analysis Button */}
+          <TouchableOpacity 
+            style={[
+              styles.deeperButton,
+              entry.mood && { borderColor: accentColor + '60' }
+            ]}
+            onPress={() => handleDeeperAnalysis(entry)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.deeperButtonIcon}>•••</Text>
+          </TouchableOpacity>
         </View>
-      </View>
+        
+        {/* Summary title (always shown) */}
+        <TouchableOpacity 
+          style={[
+            styles.summaryContainer,
+            isExpanded && styles.summaryContainerExpanded
+          ]}
+          onPress={() => animateCardPress(entry.id, () => toggleEntryExpansion(entry.id))}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.summaryTitle}>{summaryTitle}</Text>
+          {!isExpanded && (
+            <Animated.Text style={[
+              styles.expandHint,
+              { transform: [{ scale: hintPulse }] }
+            ]}>
+              Tap to read more
+            </Animated.Text>
+          )}
+        </TouchableOpacity>
+        
+        {/* Full text (animated expansion) */}
+        <Animated.View 
+          style={[
+            styles.fullTextAnimationContainer,
+            {
+              opacity: expansionAnim.interpolate({
+                inputRange: [0, 0.3, 1],
+                outputRange: [0, 0.8, 1],
+              }),
+              maxHeight: expansionAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 500], // Reduced max height for better performance
+              }),
+              transform: [{
+                scaleY: expansionAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.95, 1],
+                })
+              }],
+            }
+          ]}
+        >
+          {isExpanded && (
+            <View style={styles.fullTextContainer}>
+              <Text style={styles.fullText}>
+                {entry.text || 'Voice note recorded'}
+              </Text>
+              <TouchableOpacity 
+                style={styles.collapseButton}
+                onPress={() => animateCardPress(entry.id, () => toggleEntryExpansion(entry.id))}
+              >
+                <Text style={styles.collapseButtonText}>Show less</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </Animated.View>
+        </Animated.View>
+        
+        {/* Quick Actions Menu */}
+        {showQuickActions === entry.id && (
+          <View style={styles.quickActionsMenu}>
+            <TouchableOpacity 
+              style={styles.quickActionButton}
+              onPress={() => handleQuickAction('edit', entry)}
+            >
+              <Text style={styles.quickActionIcon}>✐</Text>
+              <Text style={styles.quickActionText}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.quickActionButton}
+              onPress={() => handleQuickAction('analyze', entry)}
+            >
+              <Text style={styles.quickActionIcon}>◆</Text>
+              <Text style={styles.quickActionText}>Analyze</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.quickActionButton}
+              onPress={() => handleQuickAction('share', entry)}
+            >
+              <Text style={styles.quickActionIcon}>↗</Text>
+              <Text style={styles.quickActionText}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.quickActionButton, styles.quickActionDanger]}
+              onPress={() => handleQuickAction('delete', entry)}
+            >
+              <Text style={[styles.quickActionIcon, styles.quickActionDangerIcon]}>×</Text>
+              <Text style={styles.quickActionText}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </TouchableOpacity>
     );
+  };
+
+  const toggleVoicePlayback = async (entry: any) => {
+    if (!entry.voiceRecordingUri) return;
+    try {
+      // Stop current
+      if (playingEntryId === entry.id) {
+        if (soundRef.current) {
+          await soundRef.current.stopAsync();
+          await soundRef.current.unloadAsync();
+          soundRef.current = null;
+        }
+        setPlayingEntryId(null);
+        return;
+      }
+      // Switch to this entry
+      if (soundRef.current) {
+        try { await soundRef.current.unloadAsync(); } catch {}
+        soundRef.current = null;
+      }
+      const { sound } = await Audio.Sound.createAsync({ uri: entry.voiceRecordingUri }, { shouldPlay: true });
+      soundRef.current = sound;
+      setPlayingEntryId(entry.id);
+      sound.setOnPlaybackStatusUpdate((status: any) => {
+        if (status && status.isLoaded && status.didJustFinish) {
+          setPlayingEntryId(null);
+          try { sound.unloadAsync(); } catch {}
+          if (soundRef.current === sound) soundRef.current = null;
+        }
+      });
+    } catch (e) {
+      console.error('Playback error', e);
+      Alert.alert('Playback Error', 'Unable to play the voice note.');
+    }
   };
 
   const renderDateGroup = (date: string, entries: typeof filteredEntries) => {
@@ -197,7 +558,7 @@ export default function AuthenticJournalScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <LinearGradient
-        colors={theme.colors.background.primary === '#0F1419' 
+        colors={isDark 
           ? ['#1a1a2e', '#16213e'] 
           : ['#667eea', '#764ba2']
         }
@@ -212,32 +573,28 @@ export default function AuthenticJournalScreen() {
               {journalEntries.length} personal entr{journalEntries.length === 1 ? 'y' : 'ies'}
             </Text>
           </View>
-          <View style={styles.headerAvatar}>
-            <AvatarRenderer 
-              type={avatar.type} 
-              vitality={avatar.vitality} 
-              size={50} 
-              animated={true}
-            />
+          <View style={styles.headerRight}>
+            <TouchableOpacity 
+              style={styles.voiceShortcutButton}
+              onPress={() => setShowVoiceRecording(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.voiceShortcutIcon}>●</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Quick Journal Button */}
+        {/* Quick Mood Bubbles */}
+        <QuickMoodBubbles onMoodSelect={handleQuickMoodSelect} />
+        
+        {/* Compact Write Button */}
         <TouchableOpacity 
-          style={styles.quickJournalButton}
+          style={styles.compactWriteButton}
           onPress={() => setShowJournalEntry(true)}
           activeOpacity={0.8}
         >
-          <View style={styles.quickJournalContent}>
-            <Text style={styles.quickJournalEmoji}>✏️</Text>
-            <View style={styles.quickJournalText}>
-              <Text style={styles.quickJournalTitle}>Write Your Thoughts</Text>
-              <Text style={styles.quickJournalSubtitle}>
-                What&apos;s on your mind today?
-              </Text>
-            </View>
-            <Text style={styles.quickJournalArrow}>→</Text>
-          </View>
+          <Text style={styles.compactWriteIcon}>⮚</Text>
+          <Text style={styles.compactWriteText}>Write Freely</Text>
         </TouchableOpacity>
       </LinearGradient>
 
@@ -305,78 +662,95 @@ export default function AuthenticJournalScreen() {
         </View>
       )}
 
-      {/* Content */}
-      <ScrollView 
-        ref={scrollViewRef}
-        style={styles.content}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={theme.colors.primary}
-          />
-        }
-      >
-        {journalEntries.length === 0 ? (
-          /* Empty State */
-          <View style={styles.emptyState}>
-            <View style={styles.emptyStateHeader}>
-              <Text style={styles.emptyEmoji}>📖</Text>
-              <Text style={styles.emptyTitle}>Start Your Personal Journal</Text>
+      {/* Content: SectionList */}
+      <SectionList
+        ref={listRef}
+        sections={filteredEntries.length > 0 ? sections : []}
+        keyExtractor={(item: any) => item.id}
+        renderItem={({ item }) => renderJournalEntry(item)}
+        renderSectionHeader={({ section }) => {
+          const dateObj = new Date(section.title);
+          const isToday = dateObj.toDateString() === new Date().toDateString();
+          const isYesterday = dateObj.toDateString() === new Date(Date.now() - 24 * 60 * 60 * 1000).toDateString();
+          let dateLabel = section.title;
+          if (isToday) dateLabel = 'Today';
+          else if (isYesterday) dateLabel = 'Yesterday';
+          else {
+            dateLabel = dateObj.toLocaleDateString('en-US', {
+              weekday: 'long',
+              month: 'short',
+              day: 'numeric',
+              year: dateObj.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+            });
+          }
+          return (
+            <View style={styles.dateHeader}>
+              <Text style={styles.dateLabel}>{dateLabel}</Text>
+              <Text style={styles.entryCount}>{section.data.length} entr{section.data.length === 1 ? 'y' : 'ies'}</Text>
             </View>
-            <Text style={styles.emptyMessage}>
-              Your thoughts, reflections, and experiences matter. Create your first entry 
-              and begin capturing the moments that shape your journey.
-            </Text>
-            <View style={styles.emptyFeatures}>
-              <Text style={styles.emptyFeature}>📝 Write freely about anything</Text>
-              <Text style={styles.emptyFeature}>🎤 Record voice notes when words aren&apos;t enough</Text>
-              <Text style={styles.emptyFeature}>😊 Track your emotional journey</Text>
-              <Text style={styles.emptyFeature}>💭 Get supportive responses from {avatar.name}</Text>
-            </View>
-          </View>
-        ) : filteredEntries.length === 0 ? (
-          /* No Results State */
-          <View style={styles.noResultsState}>
-            <Text style={styles.noResultsEmoji}>🔍</Text>
-            <Text style={styles.noResultsTitle}>No entries found</Text>
-            <Text style={styles.noResultsMessage}>
-              Try adjusting your filters to see more entries, or create a new one!
-            </Text>
-          </View>
-        ) : (
-          /* Journal Entries */
-          <View style={styles.entriesContainer}>
-            <View style={styles.entriesHeader}>
+          );
+        }}
+        ListHeaderComponent={(
+          <View style={styles.entriesHeader}>
+            {filteredEntries.length > 0 && (
               <Text style={styles.resultsCount}>
                 {filteredEntries.length} entr{filteredEntries.length === 1 ? 'y' : 'ies'} found
               </Text>
-            </View>
-            
-            {Object.entries(groupedEntries).map(([date, entries]) => 
-              renderDateGroup(date, entries)
             )}
           </View>
         )}
-        
-        {/* Journal Purpose Reminder */}
-        <View style={styles.purposeReminder}>
-          <Text style={styles.purposeTitle}>💡 Your Journal, Your Voice</Text>
-          <Text style={styles.purposeText}>
-            This is your space for authentic self-expression. Write freely, reflect deeply, 
-            and watch your thoughts evolve over time. {avatar.name} is here to support you, 
-            not to tell your story for you.
-          </Text>
-        </View>
-      </ScrollView>
+        ListFooterComponent={(
+          <View style={styles.purposeReminder}>
+            <Text style={styles.purposeTitle}>Your Journal, Your Voice</Text>
+            <Text style={styles.purposeText}>
+              This is your space for authentic self-expression. Write freely, reflect deeply, 
+              and watch your thoughts evolve over time. Use optional AI insights when you want 
+              deeper reflection, but this space is purely yours.
+            </Text>
+          </View>
+        )}
+        ListEmptyComponent={(
+          journalEntries.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyStateHeader}>
+                <Text style={styles.emptyTitle}>Start Your Personal Journal</Text>
+                <View style={styles.emptyTitleUnderline} />
+              </View>
+              <Text style={styles.emptyMessage}>
+                Your thoughts, reflections, and experiences matter. Create your first entry 
+                and begin capturing the moments that shape your journey.
+              </Text>
+              <View style={styles.emptyFeatures}>
+                <Text style={styles.emptyFeature}>📝 Write freely about anything</Text>
+                <Text style={styles.emptyFeature}>🎤 Record voice notes when words aren&apos;t enough</Text>
+                <Text style={styles.emptyFeature}>😊 Track your emotional journey</Text>
+                <Text style={styles.emptyFeature}>💭 Reflect deeper with optional AI insights</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noResultsState}>
+              <Text style={styles.noResultsTitle}>No entries found</Text>
+              <Text style={styles.noResultsMessage}>
+                Try adjusting your filters to see more entries, or create a new one!
+              </Text>
+            </View>
+          )
+        )}
+        contentContainerStyle={styles.entriesContainer}
+        showsVerticalScrollIndicator={false}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        onScrollBeginDrag={() => {
+          if (showQuickActions) setShowQuickActions(null);
+        }}
+      />
 
       {/* Floating Action Button */}
       <FloatingActionButton
         onPress={() => setShowJournalEntry(true)}
         icon="✏️"
         text="Write"
+        accessibilityLabel="Add journal entry"
         showPulse={journalEntries.length === 0}
       />
 
@@ -385,6 +759,46 @@ export default function AuthenticJournalScreen() {
         visible={showJournalEntry}
         onClose={() => setShowJournalEntry(false)}
         onSave={handleJournalEntrySave}
+      />
+
+      {/* Quick Mood Entry Modal */}
+      <QuickMoodEntryModal
+        visible={showQuickMoodEntry}
+        mood={selectedQuickMood.mood}
+        moodLabel={selectedQuickMood.label}
+        onClose={() => {
+          setShowQuickMoodEntry(false);
+          setSelectedQuickMood({ mood: null, label: '' });
+        }}
+        onSave={handleQuickMoodSave}
+      />
+
+      {/* Voice Recording Modal */}
+      {showVoiceRecording && (
+        <Modal
+          visible={showVoiceRecording}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowVoiceRecording(false)}
+        >
+          <SafeAreaView style={styles.voiceRecordingContainer}>
+            <VoiceToTextRecorder
+              onRecordingComplete={handleVoiceRecordingComplete}
+              onCancel={() => setShowVoiceRecording(false)}
+              mode="voice-to-text"
+            />
+          </SafeAreaView>
+        </Modal>
+      )}
+
+      {/* Deeper Analysis Modal */}
+      <DeeperAnalysisModal
+        visible={showDeeperAnalysis}
+        entry={selectedEntry}
+        onClose={() => {
+          setShowDeeperAnalysis(false);
+          setSelectedEntry(null);
+        }}
       />
     </SafeAreaView>
   );
@@ -397,8 +811,8 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   
   header: {
-    paddingTop: theme.spacing.lg,
-    paddingBottom: theme.spacing.xl,
+    paddingTop: theme.spacing.md,
+    paddingBottom: theme.spacing.md,
     paddingHorizontal: theme.spacing.lg,
   },
   
@@ -406,7 +820,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: theme.spacing.lg,
+    marginBottom: theme.spacing.sm,
   },
   
   headerLeft: {
@@ -414,79 +828,100 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  
-  headerSubtitle: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
-  },
-  
-  headerAvatar: {
-    marginLeft: theme.spacing.md,
-  },
-  
-  quickJournalButton: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 16,
-    padding: theme.spacing.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  
-  quickJournalContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.md,
-  },
-  
-  quickJournalEmoji: {
-    fontSize: 24,
-  },
-  
-  quickJournalText: {
-    flex: 1,
-  },
-  
-  quickJournalTitle: {
-    fontSize: 16,
+    fontSize: 22,
     fontWeight: '700',
     color: '#FFFFFF',
     marginBottom: 2,
   },
   
-  quickJournalSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
+  headerSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
   },
   
-  quickJournalArrow: {
-    fontSize: 18,
-    color: 'rgba(255,255,255,0.8)',
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+  },
+
+  voiceShortcutButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+
+  voiceShortcutIcon: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+
+  voiceRecordingContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background.primary,
+  },
+  
+  compactWriteButton: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 20,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginTop: theme.spacing.xs,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  
+  compactWriteIcon: {
+    fontSize: 12,
+    marginRight: theme.spacing.xs,
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  
+  compactWriteText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   
   filtersContainer: {
-    backgroundColor: theme.colors.background.secondary + '60',
+    backgroundColor: theme.colors.background.secondary + '40',
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.background.tertiary,
+    borderBottomColor: theme.colors.background.tertiary + '50',
   },
   
   filtersContent: {
     paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
-    gap: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.xs,
   },
   
   filterButton: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: 20,
-    backgroundColor: theme.colors.background.tertiary + '40',
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: 16,
+    backgroundColor: theme.colors.background.tertiary + '30',
     borderWidth: 1,
-    borderColor: theme.colors.background.tertiary,
+    borderColor: theme.colors.background.tertiary + '60',
   },
   
   filterButtonActive: {
@@ -495,7 +930,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   
   filterButtonText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: theme.colors.text.secondary,
   },
@@ -541,9 +976,12 @@ const createStyles = (theme: any) => StyleSheet.create({
     marginBottom: theme.spacing.xl,
   },
   
-  emptyEmoji: {
-    fontSize: 64,
-    marginBottom: theme.spacing.lg,
+  emptyTitleUnderline: {
+    width: 60,
+    height: 3,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 2,
+    marginTop: theme.spacing.sm,
   },
   
   emptyTitle: {
@@ -578,10 +1016,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     paddingVertical: theme.spacing.xxl,
   },
   
-  noResultsEmoji: {
-    fontSize: 48,
-    marginBottom: theme.spacing.lg,
-  },
+  // Removed noResultsEmoji style for cleaner interface
   
   noResultsTitle: {
     fontSize: 20,
@@ -640,102 +1075,137 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   
   entryCard: {
-    backgroundColor: theme.colors.background.secondary,
+    backgroundColor: theme.colors.background.secondary + 'F8',
     borderRadius: 16,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.md,
     borderWidth: 1,
-    borderColor: theme.colors.background.tertiary,
+    borderColor: theme.colors.background.tertiary + '40',
+    
+    // Enhanced shadow system
     shadowColor: theme.colors.text.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   },
   
   entryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: theme.spacing.md,
+    paddingBottom: theme.spacing.xs,
   },
   
   entryMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  
-  moodIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: theme.colors.background.tertiary + '60',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: theme.spacing.sm,
-  },
-  
-  moodEmoji: {
-    fontSize: 16,
-  },
-  
-  entryInfo: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  
+  entryMoodEmoji: {
+    fontSize: 18,
   },
   
   entryTime: {
-    fontSize: 13,
+    fontSize: 12,
     color: theme.colors.text.secondary,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   
   voiceIndicator: {
-    backgroundColor: theme.colors.primary + '20',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    backgroundColor: theme.colors.primary + '15',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
   
   voiceIcon: {
-    fontSize: 12,
+    fontSize: 8,
+    color: theme.colors.primary,
+    fontWeight: '700',
   },
   
-  entryText: {
+  summaryContainer: {
+    marginBottom: theme.spacing.sm,
+    padding: theme.spacing.xs,
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+  },
+  
+  summaryContainerExpanded: {
+    backgroundColor: theme.colors.background.tertiary + '15',
+    borderWidth: 1,
+    borderColor: theme.colors.background.tertiary + '30',
+  },
+  
+  summaryTitle: {
     fontSize: 16,
     color: theme.colors.text.primary,
-    lineHeight: 24,
-    marginBottom: theme.spacing.lg,
-  },
-  
-  avatarResponse: {
-    backgroundColor: theme.colors.primary + '08',
-    borderRadius: 12,
-    padding: theme.spacing.md,
-    borderLeftWidth: 3,
-    borderLeftColor: theme.colors.primary + '40',
-  },
-  
-  avatarResponseHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: theme.spacing.sm,
-  },
-  
-  miniAvatar: {
-    marginRight: theme.spacing.sm,
-  },
-  
-  avatarResponseTitle: {
-    fontSize: 13,
+    lineHeight: 22,
     fontWeight: '600',
-    color: theme.colors.primary,
+    marginBottom: theme.spacing.xs,
+    letterSpacing: -0.2,
   },
   
-  avatarResponseText: {
+  expandHint: {
+    fontSize: 12,
+    color: theme.colors.text.secondary,
+    fontStyle: 'italic',
+    opacity: 0.8,
+    textAlign: 'center',
+    paddingVertical: theme.spacing.xs,
+  },
+  
+  fullTextAnimationContainer: {
+    overflow: 'hidden',
+  },
+  
+  fullTextContainer: {
+    backgroundColor: theme.colors.background.tertiary + '20',
+    borderRadius: 12,
+    padding: theme.spacing.lg,
+    marginTop: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.background.tertiary + '30',
+  },
+  
+  fullText: {
     fontSize: 14,
     color: theme.colors.text.primary,
     lineHeight: 20,
-    fontStyle: 'italic',
+    marginBottom: theme.spacing.sm,
+  },
+  
+  collapseButtonText: {
+    fontSize: 11,
+    color: theme.colors.primary,
+    fontWeight: '500',
+  },
+  
+  deeperButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.colors.background.tertiary + '30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.background.tertiary + '50',
+    shadowColor: theme.colors.text.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  
+  deeperButtonIcon: {
+    fontSize: 10,
+    color: theme.colors.text.secondary,
+    fontWeight: '600',
+    letterSpacing: 1,
   },
   
   purposeReminder: {
@@ -760,5 +1230,56 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.text.secondary,
     lineHeight: 20,
     fontStyle: 'italic',
+  },
+  
+  // Quick Actions Menu
+  quickActionsMenu: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: theme.colors.background.secondary,
+    borderRadius: 12,
+    padding: theme.spacing.xs,
+    borderWidth: 1,
+    borderColor: theme.colors.background.tertiary,
+    shadowColor: theme.colors.text.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+    zIndex: 10,
+  },
+  
+  quickActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: 8,
+    marginBottom: theme.spacing.xs,
+    minWidth: 80,
+  },
+  
+  quickActionDanger: {
+    backgroundColor: '#FF3B3020',
+  },
+  
+  quickActionIcon: {
+    fontSize: 12,
+    marginRight: theme.spacing.xs,
+    color: theme.colors.text.primary,
+    fontWeight: '600',
+  },
+  
+  quickActionDangerIcon: {
+    color: '#FF3B30',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  
+  quickActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
   }
 });

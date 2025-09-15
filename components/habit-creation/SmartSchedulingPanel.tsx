@@ -23,7 +23,7 @@ interface SmartSchedulingPanelProps {
 }
 
 // Stable empty fallback to avoid effect loops
-const EMPTY_HABITS: ReadonlyArray<{ schedule: HabitSchedule; title: string }> = Object.freeze([]);
+const EMPTY_HABITS: readonly { schedule: HabitSchedule; title: string }[] = Object.freeze([]);
 
 export function SmartSchedulingPanel({
   category,

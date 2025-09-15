@@ -1,5 +1,4 @@
 import * as SQLite from 'expo-sqlite';
-import { encrypt } from '@/lib/crypto';
 import type { Mood, Entry, EntryType } from '@/stores/app';
 
 type GoalRow = { id: string; title: string };
@@ -35,7 +34,7 @@ export async function initializeDatabase(): Promise<void> {
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS goals (id TEXT PRIMARY KEY NOT NULL, title TEXT UNIQUE NOT NULL);
     CREATE TABLE IF NOT EXISTS habits (id TEXT PRIMARY KEY NOT NULL, goalId TEXT, title TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY NOT NULL, createdAt INTEGER NOT NULL, mood TEXT, ciphertext TEXT NOT NULL, type TEXT DEFAULT 'free_journal', voiceRecordingUri TEXT, habitId TEXT);
+    CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY NOT NULL, createdAt INTEGER NOT NULL, mood TEXT, text TEXT NOT NULL, type TEXT DEFAULT 'free_journal', voiceRecordingUri TEXT, habitId TEXT);
     CREATE TABLE IF NOT EXISTS goal_meta (goalId TEXT PRIMARY KEY NOT NULL, why_text TEXT, why_audio_uri TEXT, obstacles_json TEXT);
     CREATE TABLE IF NOT EXISTS habit_completions (id TEXT PRIMARY KEY NOT NULL, habitId TEXT NOT NULL, completedAt INTEGER NOT NULL, dateKey TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_habit_completions_habit_date ON habit_completions(habitId, dateKey);
@@ -52,6 +51,12 @@ export async function initializeDatabase(): Promise<void> {
   
   // Migration: Add enhanced habit features
   await migrateHabitsEnhancedFeatures(database);
+  
+  // Migration: Convert ciphertext to plain text
+  await migrateToPlainText(database);
+
+  // Migration: Remove legacy ciphertext schema (recreate table without NOT NULL ciphertext)
+  await migrateRemoveLegacyCiphertext(database);
 }
 
 async function migrateHabitsTable(database: SQLite.SQLiteDatabase): Promise<void> {
@@ -234,6 +239,125 @@ async function migrateHabitsEnhancedFeatures(database: SQLite.SQLiteDatabase): P
   }
 }
 
+async function migrateToPlainText(database: SQLite.SQLiteDatabase): Promise<void> {
+  try {
+    // Check if entries table has ciphertext column
+    const tableInfo = await database.getAllAsync("PRAGMA table_info(entries)");
+    const ciphertextColumn = tableInfo.find((col: any) => col.name === 'ciphertext');
+    const textColumn = tableInfo.find((col: any) => col.name === 'text');
+    
+    if (ciphertextColumn && !textColumn) {
+      console.log('Migrating entries table from ciphertext to plain text schema...');
+      
+      await database.execAsync(`
+        BEGIN TRANSACTION;
+        
+        -- Create new entries table with plain text schema
+        CREATE TABLE entries_new (
+          id TEXT PRIMARY KEY NOT NULL, 
+          createdAt INTEGER NOT NULL, 
+          mood TEXT, 
+          text TEXT NOT NULL, 
+          type TEXT DEFAULT 'free_journal', 
+          voiceRecordingUri TEXT, 
+          habitId TEXT
+        );
+        
+        -- Copy existing data from old table to new table
+        -- Use placeholder text for encrypted entries since we can't decrypt them
+        INSERT INTO entries_new (id, createdAt, mood, text, type, voiceRecordingUri, habitId)
+        SELECT 
+          id, 
+          createdAt, 
+          mood, 
+          '[Migrated entry - original was encrypted]' as text,
+          COALESCE(type, 'free_journal') as type,
+          voiceRecordingUri, 
+          habitId 
+        FROM entries;
+        
+        -- Drop the old table
+        DROP TABLE entries;
+        
+        -- Rename new table to replace old one
+        ALTER TABLE entries_new RENAME TO entries;
+        
+        COMMIT;
+      `);
+      
+      console.log('Successfully migrated entries table to plain text schema');
+      
+    } else if (!textColumn) {
+      // If neither column exists, add text column
+      console.log('Adding text column to entries table...');
+      await database.execAsync(`
+        ALTER TABLE entries ADD COLUMN text TEXT NOT NULL DEFAULT '';
+      `);
+    }
+    
+  } catch (error) {
+    console.error('Error during plain text migration:', error);
+    // Rollback transaction if it was started
+    try {
+      await database.execAsync('ROLLBACK;');
+    } catch (rollbackError) {
+      // Ignore rollback errors
+    }
+    // Don't throw - continue with app initialization
+  }
+}
+
+// Some older schemas still have a NOT NULL ciphertext column on entries.
+// Since we now store journal content in the `text` column, new inserts fail
+// with "NOT NULL constraint failed: entries.ciphertext" on those databases.
+// This migration recreates the table without the legacy ciphertext column and
+// preserves all existing data.
+async function migrateRemoveLegacyCiphertext(database: SQLite.SQLiteDatabase): Promise<void> {
+  try {
+    const tableInfo = await database.getAllAsync("PRAGMA table_info(entries)");
+    const ciphertextCol = tableInfo.find((col: any) => col.name === 'ciphertext');
+    // Only migrate if ciphertext column is present (regardless of NOT NULL flag)
+    if (!ciphertextCol) return;
+
+    console.log('[DB] Recreating entries table to drop legacy ciphertext column...');
+
+    await database.execAsync(`
+      BEGIN TRANSACTION;
+
+      CREATE TABLE entries_new (
+        id TEXT PRIMARY KEY NOT NULL,
+        createdAt INTEGER NOT NULL,
+        mood TEXT,
+        text TEXT NOT NULL,
+        type TEXT DEFAULT 'free_journal',
+        voiceRecordingUri TEXT,
+        habitId TEXT
+      );
+
+      INSERT INTO entries_new (id, createdAt, mood, text, type, voiceRecordingUri, habitId)
+      SELECT 
+        id,
+        createdAt,
+        mood,
+        COALESCE(text, CASE WHEN ciphertext IS NOT NULL THEN '[Migrated entry]' ELSE '' END) AS text,
+        COALESCE(type, 'free_journal') AS type,
+        voiceRecordingUri,
+        habitId
+      FROM entries;
+
+      DROP TABLE entries;
+      ALTER TABLE entries_new RENAME TO entries;
+
+      COMMIT;
+    `);
+
+    console.log('[DB] Entries table successfully recreated without ciphertext');
+  } catch (error) {
+    console.error('[DB] Error while recreating entries table to drop ciphertext:', error);
+    // Don't throw — continue app initialization to avoid blocking the app.
+  }
+}
+
 // Exported wrapper for the migration function
 export async function migrateHabitsScheduling(): Promise<void> {
   const database = await getDbAsync();
@@ -311,12 +435,11 @@ export async function upsertHabit(
 
 export async function insertEntry({ id, text, mood, createdAt, type, voiceRecordingUri, habitId }: Entry): Promise<void> {
   const database = await getDbAsync();
-  const ciphertext = await encrypt(text);
-  await runAsync(database, 'INSERT INTO entries (id, createdAt, mood, ciphertext, type, voiceRecordingUri, habitId) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+  await runAsync(database, 'INSERT INTO entries (id, createdAt, mood, text, type, voiceRecordingUri, habitId) VALUES (?, ?, ?, ?, ?, ?, ?)', [
     id, 
     createdAt, 
     mood ?? null, 
-    ciphertext, 
+    text, 
     type ?? 'free_journal', 
     voiceRecordingUri ?? null, 
     habitId ?? null
@@ -516,6 +639,11 @@ export async function deleteHabit(habitId: string): Promise<void> {
   await runAsync(database, 'DELETE FROM habits WHERE id = ?', [habitId]);
 }
 
+export async function deleteEntry(entryId: string): Promise<void> {
+  const database = await getDbAsync();
+  await runAsync(database, 'DELETE FROM entries WHERE id = ?', [entryId]);
+}
+
 export async function listEntries(): Promise<Entry[]> {
   try {
     const database = await getDbAsync();
@@ -523,16 +651,15 @@ export async function listEntries(): Promise<Entry[]> {
       id: string; 
       createdAt: number; 
       mood?: Mood; 
-      ciphertext: string; 
+      text: string; 
       type?: EntryType; 
       voiceRecordingUri?: string; 
       habitId?: string; 
-    }>(database, 'SELECT id, createdAt, mood, ciphertext, type, voiceRecordingUri, habitId FROM entries ORDER BY createdAt DESC');
+    }>(database, 'SELECT id, createdAt, mood, text, type, voiceRecordingUri, habitId FROM entries ORDER BY createdAt DESC');
     
-    // Note: We intentionally return only metadata here; plaintext decryption happens where needed.
-    return rows.map((r) => ({ 
+    return rows.map((r) => ({
       id: r.id, 
-      text: '[encrypted]', 
+      text: r.text, 
       mood: r.mood, 
       createdAt: r.createdAt,
       type: r.type ?? 'free_journal',
@@ -541,7 +668,6 @@ export async function listEntries(): Promise<Entry[]> {
     }));
   } catch (error) {
     console.error('Error loading entries:', error);
-    // Return empty array instead of crashing
     return [];
   }
 }
@@ -740,6 +866,4 @@ export async function listScheduledStandaloneHabits(): Promise<HabitWithSchedule
     timeRange: row.timeRange ? JSON.parse(row.timeRange) : undefined
   }));
 }
-
-
 

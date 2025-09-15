@@ -17,11 +17,17 @@ import { HabitStreakCalendar } from '@/components/HabitStreakCalendar';
 import { HabitCreationModal } from '@/components/HabitCreationModal';
 import { CreateGoalModal } from '@/components/CreateGoalModal';
 import { GoalEnhancementCard } from '@/components/GoalEnhancementCard';
-import { PlantAvatar, PetAvatar, RobotAvatar, BaseAvatar } from '@/components/avatars';
+import { GoalPlantAvatar } from '@/components/avatars';
 import { useGoalEnhancement } from '@/lib/goalEnhancement';
 import { isHabitCompletedOnDate } from '@/lib/db';
 import { AvatarStoryBadge } from '@/components/AvatarStoryBadge';
 import { AvatarStoryModal } from '@/components/AvatarStoryModal';
+import { 
+  determineGoalPlantStage, 
+  calculateGoalProgress as calculatePlantProgress, 
+  getPersonalizedMessage,
+  getPlantStageConfig 
+} from '@/lib/goalPlantStages';
 
 interface Goal {
   id: string;
@@ -32,6 +38,8 @@ interface Goal {
   completedHabits: number;
   category: 'health' | 'learning' | 'career' | 'personal';
   isActive: boolean;
+  plantStage?: string;
+  personalizedMessage?: string;
 }
 
 interface Habit {
@@ -49,6 +57,7 @@ function calculateGoalProgress(completedHabits: number, totalHabits: number): nu
   if (totalHabits === 0) return 0;
   return Math.round((completedHabits / totalHabits) * 100);
 }
+
 
 // Helper function to determine goal category based on title (simple heuristic)
 function categorizeGoal(title: string): 'health' | 'learning' | 'career' | 'personal' {
@@ -73,8 +82,7 @@ export default function GoalsScreen() {
   // Get data from Zustand store
   const { 
     goalsWithIds, 
-    habitsWithIds, 
-    standaloneHabits,
+    habitsWithIds,
     isHydrated, 
     avatar,
     getHabitStreak,
@@ -97,6 +105,7 @@ export default function GoalsScreen() {
   const [showNewGoal, setShowNewGoal] = useState(false);
   const [showNewHabit, setShowNewHabit] = useState(false);
   const [selectedGoalForStories, setSelectedGoalForStories] = useState<Goal | null>(null);
+  const [plantInteractions, setPlantInteractions] = useState<Record<string, boolean>>({});
   const styles = createStyles(theme);
 
   // Load and process real data from store
@@ -106,7 +115,7 @@ export default function GoalsScreen() {
     const loadGoalsAndHabits = async () => {
       setLoading(true);
       try {
-        // Process goals with their habits
+        // Process goals with their habits and plant stages
         const processedGoals = await Promise.all(
           goalsWithIds.map(async (goal) => {
             const goalHabits = habitsWithIds[goal.id] || [];
@@ -124,6 +133,25 @@ export default function GoalsScreen() {
 
             const progress = calculateGoalProgress(completedToday, goalHabits.length);
 
+            // Calculate plant stage
+            let plantStage = 'sprout';
+            let personalizedMessage = '';
+            
+            try {
+              const goalProgress = await calculatePlantProgress(
+                goal.id,
+                goalHabits,
+                getHabitStreak,
+                isHabitCompletedOnDate
+              );
+              
+              const stage = determineGoalPlantStage(goalProgress);
+              plantStage = stage;
+              personalizedMessage = getPersonalizedMessage(stage, goalProgress, goal.title);
+            } catch (error) {
+              console.warn(`Error calculating plant stage for goal ${goal.id}:`, error);
+            }
+
             return {
               id: goal.id,
               title: goal.title,
@@ -132,6 +160,8 @@ export default function GoalsScreen() {
               completedHabits: completedToday,
               category: categorizeGoal(goal.title),
               isActive: true, // All goals from store are considered active
+              plantStage,
+              personalizedMessage,
             };
           })
         );
@@ -215,29 +245,14 @@ export default function GoalsScreen() {
     return habits.filter(h => h.goalId === goalId);
   };
 
-  const renderAvatar = (avatarType: 'plant' | 'pet' | 'robot' | 'base', size: number = 80) => {
-    const props = {
-      vitality: avatar.vitality,
-      size,
-      animated: true,
-      style: { marginBottom: 4 }
-    };
-
-    switch (avatarType) {
-      case 'plant':
-        return <PlantAvatar {...props} />;
-      case 'pet':
-        return <PetAvatar {...props} />;
-      case 'robot':
-        return <RobotAvatar {...props} />;
-      default:
-        return <BaseAvatar {...props} />;
-    }
-  };
 
   const handleCompleteHabit = async (habitId: string) => {
     try {
       await toggleHabitCompletion(habitId);
+      
+      // Find which goal this habit belongs to
+      const habit = habits.find(h => h.id === habitId);
+      const goalId = habit?.goalId;
       
       // Refresh the habits data to show updated completion status
       const updatedHabits = await Promise.all(
@@ -251,10 +266,43 @@ export default function GoalsScreen() {
       );
       
       setHabits(updatedHabits);
+      
+      // Update the goal's plant stage if we know which goal this habit belongs to
+      if (goalId) {
+        await refreshGoalPlantStage(goalId);
+      }
+      
       Alert.alert('Great job! 🎉', 'Habit completion updated!');
     } catch (error) {
       console.error('Error toggling habit completion:', error);
       Alert.alert('Error', 'Could not update habit. Please try again.');
+    }
+  };
+
+  // Helper function to refresh a specific goal's plant stage
+  const refreshGoalPlantStage = async (goalId: string) => {
+    try {
+      const goalHabits = habitsWithIds[goalId] || [];
+      const goalProgress = await calculatePlantProgress(
+        goalId,
+        goalHabits,
+        getHabitStreak,
+        isHabitCompletedOnDate
+      );
+      
+      const stage = determineGoalPlantStage(goalProgress);
+      const personalizedMessage = getPersonalizedMessage(stage, goalProgress, goals.find(g => g.id === goalId)?.title || 'Goal');
+      
+      // Update the goals state with the new plant stage
+      setGoals(prevGoals => 
+        prevGoals.map(goal => 
+          goal.id === goalId 
+            ? { ...goal, plantStage: stage, personalizedMessage }
+            : goal
+        )
+      );
+    } catch (error) {
+      console.warn(`Error refreshing plant stage for goal ${goalId}:`, error);
     }
   };
 
@@ -263,12 +311,20 @@ export default function GoalsScreen() {
     console.log('Goal created with ID:', goalId);
   };
 
+  const handlePlantInteraction = (goalId: string) => {
+    setPlantInteractions(prev => ({ ...prev, [goalId]: true }));
+    // Clear the interaction state after animation
+    setTimeout(() => {
+      setPlantInteractions(prev => ({ ...prev, [goalId]: false }));
+    }, 1000);
+  };
+
   const renderGoalCard = (goal: Goal) => {
     const goalHabits = getGoalHabits(goal.id);
     const categoryColor = categoryColors[goal.category];
-    const vitality = avatar.vitality; // Use global avatar vitality
-    const vitalityStatus = vitality >= 70 ? 'thriving' : vitality >= 40 ? 'growing' : 'needs care';
-    const vitalityEmoji = vitality >= 70 ? '🌟' : vitality >= 40 ? '🌱' : '💚';
+    const plantStage = goal.plantStage as any; // Cast to plant stage type
+    const plantConfig = getPlantStageConfig(plantStage || 'sprout');
+    const isInteracting = plantInteractions[goal.id] || false;
     
     return (
       <TouchableOpacity 
@@ -319,21 +375,31 @@ export default function GoalsScreen() {
           </Text>
         </View>
 
-        {/* Avatar Companion Section */}
+        {/* Goal Plant Avatar Companion Section */}
         <View style={styles.avatarCompanion}>
-          <View style={styles.avatarDisplay}>
-            {renderAvatar(avatar.type, 60)}
-          </View>
+          <TouchableOpacity 
+            style={styles.avatarDisplay}
+            onPress={() => handlePlantInteraction(goal.id)}
+            activeOpacity={0.8}
+          >
+            <GoalPlantAvatar 
+              stage={plantStage || 'sprout'}
+              size={60}
+              compact={true}
+              animated={true}
+              isInteracting={isInteracting}
+            />
+          </TouchableOpacity>
           <View style={styles.companionInfo}>
             <View style={styles.companionHeader}>
-              <Text style={styles.avatarName}>{avatar.name}</Text>
-              <View style={styles.vitalityBadge}>
-                <Text style={styles.vitalityEmoji}>{vitalityEmoji}</Text>
-                <Text style={styles.vitalityText}>{vitalityStatus}</Text>
+              <Text style={styles.avatarName}>Goal Progress</Text>
+              <View style={[styles.vitalityBadge, { backgroundColor: plantConfig.backgroundColor + '20', borderColor: plantConfig.borderColor, borderWidth: 1 }]}>
+                <Text style={styles.vitalityEmoji}>{plantConfig.plant}</Text>
+                <Text style={[styles.vitalityText, { color: plantConfig.borderColor }]}>{plantConfig.description}</Text>
               </View>
             </View>
-            <Text style={styles.personalityText} numberOfLines={1}>
-              &quot;Your {avatar.type} companion&quot;
+            <Text style={styles.personalityText} numberOfLines={2}>
+              {goal.personalizedMessage || plantConfig.encouragementMessage}
             </Text>
             
             {/* Story Badge */}

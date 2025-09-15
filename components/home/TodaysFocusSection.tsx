@@ -33,10 +33,53 @@ export function TodaysFocusSection({
   const [holdingHabit, setHoldingHabit] = useState<string | null>(null);
   const [showParticles, setShowParticles] = useState(false);
   const [completingHabitId, setCompletingHabitId] = useState<string | null>(null);
+  const [showAllHabits, setShowAllHabits] = useState(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hapticIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressRef = useRef(new Animated.Value(0)).current;
 
+  // Sort habits by time, priority, and completion status
+  const sortedHabits = React.useMemo(() => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    
+    return [...habits].sort((a, b) => {
+      // Completed habits go to bottom
+      if (a.completed !== b.completed) {
+        return a.completed ? 1 : -1;
+      }
+      
+      // If both have times, sort by proximity to current time
+      if (a.time && b.time) {
+        const parseTime = (timeStr: string) => {
+          const [hours, minutes] = timeStr.split(':').map(Number);
+          return hours * 60 + minutes;
+        };
+        
+        const aMinutes = parseTime(a.time);
+        const bMinutes = parseTime(b.time);
+        const currentMinutes = currentHour * 60 + now.getMinutes();
+        
+        const aDistance = Math.abs(aMinutes - currentMinutes);
+        const bDistance = Math.abs(bMinutes - currentMinutes);
+        
+        return aDistance - bDistance;
+      }
+      
+      // Habits with times come before habits without times
+      if (a.time && !b.time) return -1;
+      if (!a.time && b.time) return 1;
+      
+      // Sort by difficulty (easier first)
+      const difficultyOrder = { 'easy': 1, 'medium': 2, 'hard': 3 };
+      return difficultyOrder[a.difficulty] - difficultyOrder[b.difficulty];
+    });
+  }, [habits]);
+
+  const INITIAL_VISIBLE_HABITS = 5;
+  const visibleHabits = showAllHabits ? sortedHabits : sortedHabits.slice(0, INITIAL_VISIBLE_HABITS);
+  const remainingHabitsCount = Math.max(0, sortedHabits.length - INITIAL_VISIBLE_HABITS);
+  
   const totalHabits = habits.length;
   const progressPercent = totalHabits > 0 ? Math.round((completedCount / totalHabits) * 100) : 0;
   const progressAnimValue = useRef(new Animated.Value(0)).current;
@@ -135,7 +178,7 @@ export function TodaysFocusSection({
       {/* Section Header */}
       <View style={styles.header}>
         <View style={styles.titleContainer}>
-          <Text style={styles.title}>Today&apos;s Focus</Text>
+          <Text style={styles.title}>Today&apos;s Focus/habits</Text>
           <Text style={styles.subtitle}>
             {completedCount}/{totalHabits} completed • {progressPercent}%
           </Text>
@@ -179,7 +222,7 @@ export function TodaysFocusSection({
 
       {/* Habits List */}
       <View style={styles.habitsList}>
-        {habits.map((habit) => (
+        {visibleHabits.map((habit) => (
           <TouchableOpacity
             key={habit.id}
             style={[
@@ -258,6 +301,25 @@ export function TodaysFocusSection({
             </View>
           </TouchableOpacity>
         ))}
+        
+        {/* Show More/Less Toggle */}
+        {remainingHabitsCount > 0 && (
+          <TouchableOpacity
+            style={styles.toggleButton}
+            onPress={() => setShowAllHabits(!showAllHabits)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.toggleText}>
+              {showAllHabits 
+                ? 'Show Less' 
+                : `Show ${remainingHabitsCount} More ${remainingHabitsCount === 1 ? 'Habit' : 'Habits'}`
+              }
+            </Text>
+            <Text style={styles.toggleIcon}>
+              {showAllHabits ? '↑' : '↓'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Particle Effect */}
@@ -339,17 +401,17 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.primary,
   },
   habitsList: {
-    gap: theme.spacing.md,
+    gap: theme.spacing.sm,
   },
   habitCard: {
     backgroundColor: theme.colors.background.secondary,
-    borderRadius: 16,
-    padding: theme.spacing.lg,
+    borderRadius: 14,
+    padding: theme.spacing.md,
     shadowColor: theme.colors.text.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -379,9 +441,9 @@ const createStyles = (theme: any) => StyleSheet.create({
     alignItems: 'center',
   },
   habitIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: theme.colors.background.tertiary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -389,7 +451,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     position: 'relative',
   },
   habitEmoji: {
-    fontSize: 24,
+    fontSize: 20,
   },
   completedBadge: {
     position: 'absolute',
@@ -451,6 +513,25 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: theme.colors.text.primary,
+  },
+  toggleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.background.tertiary,
+    borderRadius: 12,
+    padding: theme.spacing.md,
+    marginTop: theme.spacing.md,
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginRight: theme.spacing.sm,
+  },
+  toggleIcon: {
+    fontSize: 16,
+    color: theme.colors.text.secondary,
   },
   emptyContainer: {
     backgroundColor: theme.colors.background.secondary,

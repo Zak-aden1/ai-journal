@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import { upsertGoal, upsertHabit, insertEntry, listGoals, listHabitsByGoal, listEntries, saveGoalMeta, getGoalMeta, initializeDatabase, listHabitsWithIdsByGoal, listStandaloneHabits, listAllHabitsWithGoals, updateHabitGoalAssignment, deleteGoal as dbDeleteGoal, deleteHabit as dbDeleteHabit, markHabitComplete, unmarkHabitComplete, isHabitCompletedOnDate, calculateHabitStreak, HabitSchedule, HabitWithSchedule, filterHabitsForToday, sortHabitsByTime, migrateHabitsScheduling, listScheduledHabitsForGoal, listScheduledStandaloneHabits, EnhancedHabitData } from '@/lib/db';
+import { upsertGoal, upsertHabit, insertEntry, listGoals, listHabitsByGoal, listEntries, saveGoalMeta, getGoalMeta, initializeDatabase, listHabitsWithIdsByGoal, listStandaloneHabits, listAllHabitsWithGoals, updateHabitGoalAssignment, deleteGoal as dbDeleteGoal, deleteHabit as dbDeleteHabit, markHabitComplete, unmarkHabitComplete, isHabitCompletedOnDate, calculateHabitStreak, HabitSchedule, HabitWithSchedule, filterHabitsForToday, sortHabitsByTime, migrateHabitsScheduling, listScheduledHabitsForGoal, listScheduledStandaloneHabits, EnhancedHabitData, deleteEntry as dbDeleteEntry } from '@/lib/db';
 import { nextActionFrom } from '@/services/ai/suggestions';
 import { AvatarType, AvatarMemory } from '@/components/avatars/types';
 import { AvatarStory, StoryUnlockProgress, StoryUnlockNotification } from '@/types/avatarStories';
@@ -100,6 +100,7 @@ type AppState = {
   cleanupCorruptedHabits: () => Promise<number>;
   submitEntry: (text: string, mood?: Mood, habitId?: string) => Promise<void>;
   submitJournalEntry: (text: string, mood?: Mood, voiceRecordingUri?: string) => Promise<void>;
+  deleteEntry: (entryId: string) => Promise<void>;
   setNextAction: (s: Suggestion | null) => void;
   saveWhy: (goalId: string, data: GoalMeta) => Promise<void>;
   toggleHabitCompletion: (habitId: string, date?: Date) => Promise<void>;
@@ -541,6 +542,13 @@ export const useAppStore = create<AppState>()(
           mood,
           vitality: s.avatar.vitality,
         });
+      });
+    },
+
+    deleteEntry: async (entryId) => {
+      await dbDeleteEntry(entryId);
+      set((s) => {
+        s.entries = s.entries.filter((e) => e.id !== entryId);
       });
     },
 
@@ -1088,4 +1096,3 @@ export const useAppStore = create<AppState>()(
 export function isOnboardedSelector(state: AppState): boolean {
   return Boolean(state.primaryGoalId);
 }
-
