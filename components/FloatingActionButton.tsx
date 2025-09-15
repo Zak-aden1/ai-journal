@@ -18,6 +18,7 @@ interface FloatingActionButtonProps {
   size?: number;
   disabled?: boolean;
   showPulse?: boolean;
+  accessibilityLabel?: string;
 }
 
 export function FloatingActionButton({ 
@@ -27,7 +28,8 @@ export function FloatingActionButton({
   style, 
   size = 56,
   disabled = false,
-  showPulse = false
+  showPulse = false,
+  accessibilityLabel = 'Add new habit'
 }: FloatingActionButtonProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme, size, !!text);
@@ -69,7 +71,7 @@ export function FloatingActionButton({
         activeOpacity={0.8}
         disabled={disabled}
         accessibilityRole="button"
-        accessibilityLabel="Add new habit"
+        accessibilityLabel={accessibilityLabel}
       >
         {text ? (
           <View style={styles.textContainer}>

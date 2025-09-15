@@ -31,7 +31,7 @@ export default function YourWhyStep() {
         <View style={styles.header}>
           <Text style={styles.title}>Your Deeper Why</Text>
           <Text style={styles.subtitle}>
-            What makes "{goalTitle}" truly meaningful to you?
+            What makes &quot;{goalTitle}&quot; truly meaningful to you?
           </Text>
         </View>
 
@@ -45,7 +45,7 @@ export default function YourWhyStep() {
           <View style={styles.avatarInfo}>
             <Text style={styles.avatarName}>{avatarName}</Text>
             <Text style={styles.avatarMessage}>
-              "Understanding your 'why' will keep us motivated when things get tough. What's driving this goal? 💭"
+              &quot;Understanding your &apos;why&apos; will keep us motivated when things get tough. What&apos;s driving this goal? 💭&quot;
             </Text>
           </View>
         </View>
@@ -54,7 +54,7 @@ export default function YourWhyStep() {
         <View style={styles.form}>
           {/* Deep Why Text */}
           <View style={styles.field}>
-            <Text style={styles.label}>What's driving you? *</Text>
+            <Text style={styles.label}>What&apos;s driving you? *</Text>
             <TextInput
               value={whyText}
               onChangeText={(text) => {
@@ -100,7 +100,7 @@ export default function YourWhyStep() {
             </View>
             <View style={styles.prompt}>
               <Text style={styles.promptText}>
-                • What would happen if you don't pursue this goal?
+                • What would happen if you don&apos;t pursue this goal?
               </Text>
             </View>
             <View style={styles.prompt}>
@@ -123,22 +123,22 @@ export default function YourWhyStep() {
 
         {/* Examples Section */}
         <View style={styles.examplesSection}>
-          <Text style={styles.examplesTitle}>Examples of powerful "whys":</Text>
+          <Text style={styles.examplesTitle}>Examples of powerful &quot;whys&quot;:</Text>
           
           <View style={styles.examples}>
             <View style={styles.example}>
               <Text style={styles.exampleText}>
-                "I want to be healthy so I can keep up with my kids and be a positive role model for them."
+                &quot;I want to be healthy so I can keep up with my kids and be a positive role model for them.&quot;
               </Text>
             </View>
             <View style={styles.example}>
               <Text style={styles.exampleText}>
-                "Learning new skills will help me advance my career and provide better for my family."
+                &quot;Learning new skills will help me advance my career and provide better for my family.&quot;
               </Text>
             </View>
             <View style={styles.example}>
               <Text style={styles.exampleText}>
-                "I want to prove to myself that I can achieve anything I set my mind to."
+                &quot;I want to prove to myself that I can achieve anything I set my mind to.&quot;
               </Text>
             </View>
           </View>
@@ -148,7 +148,7 @@ export default function YourWhyStep() {
         <View style={styles.motivationSection}>
           <Text style={styles.motivationTitle}>Remember:</Text>
           <Text style={styles.motivationText}>
-            Your "why" is what will fuel your consistency when motivation fades. 
+            Your &quot;why&quot; is what will fuel your consistency when motivation fades. 
             {avatarName} will remind you of this purpose throughout your journey! 🌟
           </Text>
         </View>

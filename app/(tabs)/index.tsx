@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useAppStore } from '@/stores/app';
 import { useToast } from '@/hooks/useToast';
@@ -8,6 +7,7 @@ import { useHomeData } from '@/hooks/useHomeData';
 // New modular components
 import { HomeContainer } from '@/components/home/HomeContainer';
 import { HomeHeader } from '@/components/home/HomeHeader';
+import { DailyProgressOverview } from '@/components/home/DailyProgressOverview';
 import { PrimaryGoalSection } from '@/components/home/PrimaryGoalSection';
 import { TodaysFocusSection } from '@/components/home/TodaysFocusSection';
 import { QuickActionsSection } from '@/components/home/QuickActionsSection';
@@ -223,6 +223,17 @@ export default function HomeScreen() {
         onCreateGoal={() => setShowCreateGoal(true)}
       />
 
+      {/* Daily Progress Overview */}
+      {hasData && visibleHabits && (
+        <DailyProgressOverview
+          completedHabits={visibleCompletedCount}
+          totalHabits={visibleHabits.length}
+          currentStreak={primaryGoal?.streak || 0}
+          todayGoalProgress={primaryGoal ? Math.round((primaryGoal.completedHabits / Math.max(primaryGoal.totalHabits, 1)) * 100) : 0}
+          motivationalMessage={contextualGreeting}
+        />
+      )}
+
       {/* Primary Goal Section */}
       {hasData && (
         <PrimaryGoalSection
@@ -233,15 +244,15 @@ export default function HomeScreen() {
         />
       )}
 
+      {/* Quick Actions */}
+      <QuickActionsSection actions={quickActions} />
+
       {/* Today's Focus Section */}
       <TodaysFocusSection
         habits={visibleHabits}
         completedCount={visibleCompletedCount}
         onHabitToggle={handleHabitToggle}
       />
-
-      {/* Quick Actions */}
-      <QuickActionsSection actions={quickActions} />
 
       {/* Floating Action Button */}
       <FloatingActionButton onPress={() => setShowHabitCreation(true)} />
@@ -314,10 +325,3 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});

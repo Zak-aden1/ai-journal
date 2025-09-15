@@ -77,7 +77,7 @@ const CarouselItem = React.memo(({
       </View>
       <View style={styles.cardContent}>
         <Animated.View style={[styles.avatarSection, parallaxStyle]}>
-          <AvatarRenderer type={displayAvatar.type} vitality={displayAvatar.vitality} size={80} animated={false} />
+          <AvatarRenderer type={displayAvatar.type} vitality={displayAvatar.vitality} size={60} animated={false} />
           <Text style={styles.avatarName}>{displayAvatar.name}</Text>
           <Text style={[styles.vitalityText, { color: vitalityColor }]}>{displayAvatar.vitality}% Vitality</Text>
         </Animated.View>
@@ -367,8 +367,8 @@ const createStyles = (theme: any) => StyleSheet.create({
   goalCard: {
     flex: 1,
     backgroundColor: theme.colors.background.secondary,
-    borderRadius: 24,
-    padding: theme.spacing.xl,
+    borderRadius: 20,
+    padding: theme.spacing.lg,
     borderWidth: 2,
     shadowColor: theme.colors.text.primary,
     shadowOffset: { width: 0, height: 6 },
@@ -407,7 +407,8 @@ const createStyles = (theme: any) => StyleSheet.create({
   
   avatarSection: {
     alignItems: 'center',
-    marginRight: theme.spacing.xl,
+    marginRight: theme.spacing.lg,
+    paddingRight: theme.spacing.sm,
   },
   
   avatarName: {

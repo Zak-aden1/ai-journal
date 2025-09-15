@@ -139,7 +139,7 @@ export default function AvatarPersonalizationStep() {
           <View style={styles.preview}>
             <View style={styles.previewBubble}>
               <Text style={styles.previewText}>
-                "Hi! I'm {localName}. I'm excited to help you achieve your goals! 🌟"
+                &quot;Hi! I&apos;m {localName}. I&apos;m excited to help you achieve your goals! 🌟&quot;
               </Text>
             </View>
             <View style={styles.previewArrow} />
@@ -150,7 +150,7 @@ export default function AvatarPersonalizationStep() {
         <View style={styles.infoBox}>
           <Text style={styles.infoTitle}>💡 Did you know?</Text>
           <Text style={styles.infoText}>
-            Your companion's vitality will change based on your habit completion. The more consistent you are, the happier and healthier they become!
+            Your companion&apos;s vitality will change based on your habit completion. The more consistent you are, the happier and healthier they become!
           </Text>
         </View>
       </ScrollView>

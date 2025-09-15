@@ -48,7 +48,7 @@ export default function PrivacyStep() {
           <View style={styles.avatarInfo}>
             <Text style={styles.avatarName}>{avatarName}</Text>
             <Text style={styles.avatarMessage}>
-              "Your privacy is important! Let's set up your preferences to complete your setup. We're almost ready to begin this journey together! 🔒✨"
+              &quot;Your privacy is important! Let&apos;s set up your preferences to complete your setup. We&apos;re almost ready to begin this journey together! 🔒✨&quot;
             </Text>
           </View>
         </View>
@@ -94,7 +94,7 @@ export default function PrivacyStep() {
             
             {/* Mood Selection */}
             <View style={styles.moodSection}>
-              <Text style={styles.label}>How are you feeling about "{goalTitle}"?</Text>
+              <Text style={styles.label}>How are you feeling about &quot;{goalTitle}&quot;?</Text>
               <View style={styles.moods}>
                 {moods.map((mood) => (
                   <Chip

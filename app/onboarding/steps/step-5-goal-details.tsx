@@ -69,7 +69,7 @@ export default function GoalDetailsStep() {
         <View style={styles.header}>
           <Text style={styles.title}>Define Your Goal</Text>
           <Text style={styles.subtitle}>
-            Let's create a specific goal that {avatarName} can help you achieve
+            Let&apos;s create a specific goal that {avatarName} can help you achieve
           </Text>
         </View>
 
@@ -83,7 +83,7 @@ export default function GoalDetailsStep() {
           <View style={styles.avatarInfo}>
             <Text style={styles.avatarName}>{avatarName}</Text>
             <Text style={styles.avatarMessage}>
-              "I'm excited to help you achieve your {goalCategory} goal! Let's make it specific and inspiring! ✨"
+              &quot;I&apos;m excited to help you achieve your {goalCategory} goal! Let&apos;s make it specific and inspiring! ✨&quot;
             </Text>
           </View>
         </View>

@@ -47,7 +47,10 @@ export function JournalEntryModal({ visible, onClose, onSave }: JournalEntryModa
       return;
     }
 
-    onSave(journalText.trim(), selectedMood || undefined, voiceRecordingUri || undefined);
+    // If there's only a voice recording without text, provide a default text
+    const finalText = journalText.trim() || (voiceRecordingUri ? 'Voice note recorded' : '');
+    
+    onSave(finalText, selectedMood || undefined, voiceRecordingUri || undefined);
     handleClose();
   };
 

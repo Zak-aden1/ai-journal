@@ -18,6 +18,11 @@ import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppStore } from '@/stores/app';
 import { AvatarRenderer } from '@/components/avatars';
+import { AVATAR_PERSONALITIES } from '@/lib/avatarPersonality';
+import { initializeChatAI } from '@/services/ai/chat';
+import { getAIConfig } from '@/services/ai/config';
+import { generateDailyThoughts, getTodaysThoughts, getTimeUntilNextGeneration, canGenerateDailyThoughts } from '@/services/ai/thoughts';
+import type { GoalContext } from '@/services/ai/chat';
 import { isHabitCompletedOnDate } from '@/lib/db';
 
 interface Goal {
@@ -77,6 +82,11 @@ export default function GoalDetailPage() {
 
   const [goal, setGoal] = useState<Goal | null>(null);
   const [loading, setLoading] = useState(true);
+  const [thoughtLoading, setThoughtLoading] = useState(false);
+  const [thoughtError, setThoughtError] = useState<string | null>(null);
+  const [avatarThought, setAvatarThought] = useState<{ text: string; updatedAt: number } | null>(null);
+  const [canGenerateThought, setCanGenerateThought] = useState(true);
+  const [nextAvailableIn, setNextAvailableIn] = useState<string | null>(null);
   const styles = createStyles(theme);
   
   // Animation values
@@ -172,6 +182,77 @@ export default function GoalDetailPage() {
     // Animate progress bar
     progressWidth.value = withDelay(400, withTiming(goal.progress, { duration: 1000 }));
   }, [goal?.progress, avatarScale, vitalityOpacity, progressWidth, goal, loading]);
+
+  // Load today's thoughts availability and cached value
+  useEffect(() => {
+    const run = async () => {
+      if (!goal) return;
+      try {
+        // Ensure AI is configured
+        initializeChatAI(getAIConfig());
+
+        const todays = await getTodaysThoughts(goal.id);
+        if (todays) {
+          setAvatarThought({ text: todays.thoughts, updatedAt: new Date(todays.generated_at).getTime() });
+          setCanGenerateThought(false);
+          setNextAvailableIn(await getTimeUntilNextGeneration(goal.id));
+        } else {
+          setAvatarThought(null);
+          const allowed = await canGenerateDailyThoughts(goal.id);
+          setCanGenerateThought(allowed);
+          if (!allowed) setNextAvailableIn(await getTimeUntilNextGeneration(goal.id));
+        }
+      } catch (e) {
+        console.warn('Thoughts init error', e);
+      }
+    };
+    run();
+  }, [goal?.id]);
+
+  const buildGoalContext = (): GoalContext | null => {
+    if (!goal) return null;
+    // Map habits for AI context (id/title only)
+    const mappedHabits = goal.habits.map(h => ({ id: h.id, title: h.title } as any));
+    const personality = AVATAR_PERSONALITIES[avatar.type].traits;
+    return {
+      id: goal.id,
+      title: goal.title,
+      why: goal.why,
+      obstacles: goal.obstacles || [],
+      habits: mappedHabits as any,
+      completedHabitsToday: goal.completedHabits,
+      totalHabits: goal.totalHabits,
+      avatar: {
+        type: avatar.type,
+        name: avatar.name,
+        vitality: avatar.vitality,
+        personality,
+      },
+      userProgress: {
+        streaks: Object.fromEntries(goal.habits.map(h => [h.id, h.streak])),
+        recentCompletions: goal.completedHabits,
+        overallProgress: goal.progress,
+      },
+    };
+  };
+
+  const handleGenerateThoughts = async () => {
+    if (!goal) return;
+    setThoughtError(null);
+    setThoughtLoading(true);
+    try {
+      const context = buildGoalContext();
+      if (!context) throw new Error('Missing goal context');
+      const result = await generateDailyThoughts(context);
+      setAvatarThought({ text: result.thoughts, updatedAt: new Date(result.generated_at).getTime() });
+      setCanGenerateThought(false);
+      setNextAvailableIn(await getTimeUntilNextGeneration(goal.id));
+    } catch (e: any) {
+      setThoughtError(e?.message || 'Failed to generate thoughts');
+    } finally {
+      setThoughtLoading(false);
+    }
+  };
 
   // Animated styles - must be called before any conditional returns
   const animatedAvatarStyle = useAnimatedStyle(() => ({
@@ -356,6 +437,51 @@ export default function GoalDetailPage() {
             </View>
           </View>
         )}
+
+        {/* Avatar's Thoughts */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionIcon}>
+              <Text style={styles.sectionEmoji}>✨</Text>
+            </View>
+            <Text style={styles.sectionTitle}>{avatar.name}'s Thoughts</Text>
+          </View>
+          <View style={[styles.card, styles.thoughtsCard]}>
+            {avatarThought ? (
+              <>
+                <Text style={styles.thoughtsText}>{avatarThought.text}</Text>
+                <View style={styles.thoughtsFooter}>
+                  <Text style={styles.thoughtsMeta}>Updated today</Text>
+                  {!canGenerateThought && nextAvailableIn && (
+                    <Text style={styles.thoughtsMeta}>· New in {nextAvailableIn}</Text>
+                  )}
+                </View>
+              </>
+            ) : thoughtLoading ? (
+              <>
+                <View style={styles.thoughtsSkeletonLine} />
+                <View style={[styles.thoughtsSkeletonLine, { width: '80%' }]} />
+              </>
+            ) : (
+              <>
+                <Text style={styles.thoughtsEmpty}>No thoughts yet for today.</Text>
+                <TouchableOpacity
+                  style={[styles.generateButton, !canGenerateThought && styles.generateButtonDisabled]}
+                  onPress={handleGenerateThoughts}
+                  disabled={!canGenerateThought || thoughtLoading}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.generateButtonText}>
+                    {canGenerateThought ? 'Generate today\'s thoughts' : (nextAvailableIn ? `Available in ${nextAvailableIn}` : 'Come back tomorrow')}
+                  </Text>
+                </TouchableOpacity>
+                {thoughtError && (
+                  <Text style={styles.errorInline}>{thoughtError}</Text>
+                )}
+              </>
+            )}
+          </View>
+        </View>
 
         {/* Avatar Companion Section */}
         <View style={styles.section}>
@@ -985,5 +1111,56 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.text.secondary,
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Thoughts styles
+  thoughtsCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.primary,
+  },
+  thoughtsText: {
+    fontSize: 16,
+    color: theme.colors.text.primary,
+    lineHeight: 22,
+    marginBottom: theme.spacing.sm,
+  },
+  thoughtsFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  thoughtsMeta: {
+    fontSize: 12,
+    color: theme.colors.text.secondary,
+  },
+  thoughtsEmpty: {
+    fontSize: 14,
+    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.md,
+  },
+  generateButton: {
+    backgroundColor: theme.colors.interactive.primary,
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.lg,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+  },
+  generateButtonDisabled: {
+    opacity: 0.6,
+  },
+  generateButtonText: {
+    color: theme.colors.text.inverse,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  thoughtsSkeletonLine: {
+    height: 14,
+    backgroundColor: theme.colors.background.tertiary,
+    borderRadius: 8,
+    marginBottom: theme.spacing.sm,
+  },
+  errorInline: {
+    marginTop: theme.spacing.sm,
+    color: theme.colors.text.secondary,
+    fontSize: 12,
   },
 });
