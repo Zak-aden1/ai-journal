@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -24,6 +24,7 @@ import { getAIConfig } from '@/services/ai/config';
 import { generateDailyThoughts, getTodaysThoughts, getTimeUntilNextGeneration, canGenerateDailyThoughts } from '@/services/ai/thoughts';
 import type { GoalContext } from '@/services/ai/chat';
 import { AIThoughtCard } from '@/components/ai/AIThoughtCard';
+import { NextActionCard } from '@/components/goal/NextActionCard';
 import { isHabitCompletedOnDate } from '@/lib/db';
 
 interface Goal {
@@ -78,7 +79,8 @@ export default function GoalDetailPage() {
     goalMeta,
     avatar,
     isHydrated,
-    getHabitStreak 
+    getHabitStreak,
+    toggleHabitCompletion,
   } = useAppStore();
 
   const [goal, setGoal] = useState<Goal | null>(null);
@@ -88,6 +90,8 @@ export default function GoalDetailPage() {
   const [avatarThought, setAvatarThought] = useState<{ text: string; updatedAt: number } | null>(null);
   const [canGenerateThought, setCanGenerateThought] = useState(true);
   const [nextAvailableIn, setNextAvailableIn] = useState<string | null>(null);
+  // Next Action state (must be before any early returns)
+  const [snoozed, setSnoozed] = useState<Set<string>>(new Set());
   const styles = createStyles(theme);
   
   // Animation values
@@ -95,11 +99,8 @@ export default function GoalDetailPage() {
   const avatarScale = useSharedValue(0.8);
   const vitalityOpacity = useSharedValue(0);
   
-  // Load goal data from store
-  useEffect(() => {
-    if (!isHydrated || !id) return;
-
-    const loadGoalData = async () => {
+  // Helper to load goal data from store (re-usable)
+  const loadGoalData = useCallback(async () => {
       setLoading(true);
       try {
         // Find the goal in store
@@ -165,10 +166,13 @@ export default function GoalDetailPage() {
       } finally {
         setLoading(false);
       }
-    };
+  }, [id, goalsWithIds, habitsWithIds, goalMeta, getHabitStreak]);
 
+  // Initial load
+  useEffect(() => {
+    if (!isHydrated || !id) return;
     loadGoalData();
-  }, [id, isHydrated, goalsWithIds, habitsWithIds, goalMeta, getHabitStreak]);
+  }, [isHydrated, id, loadGoalData]);
 
   // Animation effects - must be called before any conditional returns
   useEffect(() => {
@@ -327,6 +331,28 @@ export default function GoalDetailPage() {
 
   const vitalityInfo = getVitalityLevel(avatar.vitality);
 
+  // Next Action heuristics
+  const nextHabit = goal?.habits.find(h => !h.completed && !snoozed.has(h.id));
+
+  const handleCompleteNext = async () => {
+    try {
+      if (!nextHabit) return;
+      await toggleHabitCompletion(nextHabit.id);
+      await loadGoalData();
+    } catch (e) {
+      console.warn('Failed to toggle habit', e);
+    }
+  };
+
+  const handleSnooze = () => {
+    if (!nextHabit) return;
+    setSnoozed(prev => new Set([...prev, nextHabit.id]));
+  };
+
+  const handleReschedule = () => {
+    Alert.alert('Reschedule', 'Scheduling editor coming soon.');
+  };
+
   // Action handlers with feedback
   const handleChatWithAvatar = () => {
     if (!goal) return;
@@ -423,7 +449,21 @@ export default function GoalDetailPage() {
             </View>
           </View>
         </View>
-        
+        {/* Next Action */}
+        {nextHabit && (
+          <View style={styles.section}>
+            <NextActionCard
+              title={nextHabit.title}
+              subtitle={'Suggested now'}
+              accentColor={categoryColor}
+              estimatedMinutes={5}
+              onComplete={handleCompleteNext}
+              onSnooze={handleSnooze}
+              onReschedule={handleReschedule}
+            />
+          </View>
+        )}
+
         {/* My Why Section */}
         {goal.why && (
           <View style={styles.section}>
