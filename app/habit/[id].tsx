@@ -5,7 +5,8 @@ import {
   TouchableOpacity, 
   StyleSheet, 
   ScrollView,
-  Alert
+  Alert,
+  Modal
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -78,6 +79,8 @@ export default function HabitDetailPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [completionData, setCompletionData] = useState<Array<{date: string, completed: boolean, planned?: boolean}>>([]);
   const [weeklyScore, setWeeklyScore] = useState<{completed: number; planned: number}>({ completed: 0, planned: 0 });
+  const [showDaySheet, setShowDaySheet] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<{date: string; completed: boolean; planned?: boolean} | null>(null);
   
   const styles = createStyles(theme);
   
@@ -224,15 +227,21 @@ export default function HabitDetailPage() {
     }
   };
 
-  const handleDayPress = async (dateStr: string) => {
+  const handleDayPress = (dateStr: string) => {
+    const day = completionData.find(d => d.date === dateStr) || { date: dateStr, completed: false, planned: false };
+    setSelectedDay(day);
+    setShowDaySheet(true);
+  };
+
+  const handleToggleDay = async (dateStr: string) => {
     try {
       if (!habit) return;
       const pressedDate = new Date(dateStr);
-      // Prevent future toggles
       const today = new Date();
       today.setHours(0,0,0,0);
       if (pressedDate > today) return;
       await toggleHabitCompletion(habit.id, pressedDate);
+      setShowDaySheet(false);
       await loadHabitData();
     } catch (e) {
       console.error('Error toggling on date', e);
@@ -433,6 +442,30 @@ export default function HabitDetailPage() {
 
         </ScrollView>
       </View>
+
+      {/* Day Detail Bottom Sheet */}
+      <Modal visible={showDaySheet} animationType="slide" transparent onRequestClose={() => setShowDaySheet(false)}>
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={() => setShowDaySheet(false)} />
+          <View style={styles.sheetCard}>
+            <View style={styles.sheetGrab} />
+            <Text style={styles.sheetTitle}>
+              {selectedDay ? new Date(selectedDay.date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }) : ''}
+            </Text>
+            <Text style={styles.sheetSubtitle}>
+              {selectedDay?.planned ? (selectedDay?.completed ? 'Completed (planned day)' : 'Missed (planned day)') : (selectedDay?.completed ? 'Completed' : 'Off day')}
+            </Text>
+            {selectedDay && new Date(selectedDay.date) <= new Date(new Date().toISOString().split('T')[0]) && (
+              <TouchableOpacity style={[styles.sheetPrimary, { backgroundColor: categoryColor }]} onPress={() => handleToggleDay(selectedDay.date)}>
+                <Text style={styles.sheetPrimaryText}>{selectedDay.completed ? 'Undo completion' : 'Mark complete'}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.sheetClose} onPress={() => setShowDaySheet(false)}>
+              <Text style={styles.sheetCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Edit Modal */}
       <HabitEditModal
@@ -697,4 +730,15 @@ const createStyles = (theme: any) => StyleSheet.create({
     textAlign: 'center',
     fontStyle: 'italic',
   },
+  // Day sheet styles
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  sheetScrim: { flex: 1 },
+  sheetCard: { backgroundColor: theme.colors.background.primary, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: theme.spacing.lg, borderTopWidth: 1, borderTopColor: theme.colors.background.tertiary },
+  sheetGrab: { width: 40, height: 4, borderRadius: 2, backgroundColor: theme.colors.background.tertiary, alignSelf: 'center', marginBottom: theme.spacing.md },
+  sheetTitle: { fontSize: 18, fontWeight: '700', color: theme.colors.text.primary, textAlign: 'center' },
+  sheetSubtitle: { fontSize: 14, color: theme.colors.text.secondary, textAlign: 'center', marginTop: 4, marginBottom: theme.spacing.md },
+  sheetPrimary: { paddingVertical: theme.spacing.md, borderRadius: 16, alignItems: 'center' },
+  sheetPrimaryText: { color: '#fff', fontWeight: '700' },
+  sheetClose: { marginTop: theme.spacing.md, alignSelf: 'center', paddingHorizontal: theme.spacing.xl, paddingVertical: theme.spacing.sm, backgroundColor: theme.colors.background.secondary, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.background.tertiary },
+  sheetCloseText: { color: theme.colors.text.primary, fontWeight: '600' },
 });

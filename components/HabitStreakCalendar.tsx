@@ -20,32 +20,70 @@ export function HabitStreakCalendar({ completions, onDatePress, title }: HabitSt
   };
   
   const getCurrentMonthYear = () => {
-    if (completions.length === 0) return '';
-    const date = new Date(completions[completions.length - 1].date);
-    date.setMonth(date.getMonth() + currentMonthOffset);
-    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const today = new Date();
+    const targetDate = new Date(today.getFullYear(), today.getMonth() + currentMonthOffset, 1);
+    return targetDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   };
-  
-  // Group by week for better layout
-  const weeks: { date: string; completed: boolean; planned?: boolean }[][] = [];
-  let currentWeek: { date: string; completed: boolean; planned?: boolean }[] = [];
-  
-  completions.forEach((completion, index) => {
-    currentWeek.push(completion);
-    if (currentWeek.length === 7 || index === completions.length - 1) {
-      weeks.push([...currentWeek]);
-      currentWeek = [];
+
+  const canNavigateNext = () => {
+    return currentMonthOffset < 0; // Can only go forward if we're in the past
+  };
+
+  const generateMonthGrid = () => {
+    const today = new Date();
+    const targetDate = new Date(today.getFullYear(), today.getMonth() + currentMonthOffset, 1);
+    
+    // Start from the beginning of the week containing the 1st
+    const firstDay = new Date(targetDate);
+    firstDay.setDate(1);
+    const startDate = new Date(firstDay);
+    startDate.setDate(startDate.getDate() - startDate.getDay()); // Go to Sunday
+    
+    // Generate 42 days (6 weeks)
+    const days = [];
+    for (let i = 0; i < 42; i++) {
+      const currentDate = new Date(startDate);
+      currentDate.setDate(startDate.getDate() + i);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      
+      // Find completion data for this date
+      const completionData = completions.find(c => c.date === dateStr);
+      
+      days.push({
+        date: dateStr,
+        day: currentDate.getDate(),
+        isCurrentMonth: currentDate.getMonth() === targetDate.getMonth(),
+        completed: completionData?.completed || false,
+        planned: completionData?.planned || false,
+        isToday: dateStr === today.toISOString().split('T')[0]
+      });
     }
-  });
+    
+    return days;
+  };
+
+  const monthDays = generateMonthGrid();
   
-  const getDayStyle = (completed: boolean, planned: boolean | undefined, isToday: boolean) => {
+  // Group by week for better layout (6 weeks of 7 days each)
+  const weeks = [];
+  for (let i = 0; i < 6; i++) {
+    weeks.push(monthDays.slice(i * 7, (i + 1) * 7));
+  }
+  
+  const getDayStyle = (day: any) => {
     const baseStyle = [styles.dayContainer];
     
-    if (completed) {
+    // Fade out days from other months
+    if (!day.isCurrentMonth) {
+      baseStyle.push(styles.otherMonthDay);
+      return baseStyle;
+    }
+    
+    if (day.completed) {
       baseStyle.push({ backgroundColor: theme.colors.primary });
     } else {
       // Planned but missed vs off day
-      if (planned) {
+      if (day.planned) {
         baseStyle.push({ 
           backgroundColor: theme.colors.background.secondary,
           borderWidth: 2,
@@ -60,7 +98,7 @@ export function HabitStreakCalendar({ completions, onDatePress, title }: HabitSt
       }
     }
     
-    if (isToday) {
+    if (day.isToday) {
       baseStyle.push({ 
         borderWidth: 2,
         borderColor: theme.colors.primary 
@@ -91,10 +129,14 @@ export function HabitStreakCalendar({ completions, onDatePress, title }: HabitSt
         </Text>
         
         <TouchableOpacity 
-          style={styles.navButton}
-          onPress={() => setCurrentMonthOffset(currentMonthOffset + 1)}
+          style={[styles.navButton, !canNavigateNext() && styles.navButtonDisabled]}
+          onPress={() => canNavigateNext() && setCurrentMonthOffset(currentMonthOffset + 1)}
+          disabled={!canNavigateNext()}
         >
-          <Text style={[styles.navText, { color: theme.colors.text.primary }]}>›</Text>
+          <Text style={[
+            styles.navText, 
+            { color: canNavigateNext() ? theme.colors.text.primary : theme.colors.text.muted }
+          ]}>›</Text>
         </TouchableOpacity>
       </View>
 
@@ -114,19 +156,24 @@ export function HabitStreakCalendar({ completions, onDatePress, title }: HabitSt
             {week.map((day) => (
               <Pressable
                 key={day.date}
-                style={getDayStyle(day.completed, !!day.planned, isToday(day.date))}
-                onPress={() => onDatePress?.(day.date)}
+                style={getDayStyle(day)}
+                onPress={() => day.isCurrentMonth && onDatePress?.(day.date)}
+                disabled={!day.isCurrentMonth}
               >
                 <Text 
                   style={[
                     styles.dayText, 
                     { 
-                      color: day.completed ? '#fff' : theme.colors.text.primary,
-                      fontWeight: isToday(day.date) ? 'bold' : 'normal'
+                      color: !day.isCurrentMonth 
+                        ? theme.colors.text.muted + '50'
+                        : day.completed 
+                          ? '#fff' 
+                          : theme.colors.text.primary,
+                      fontWeight: day.isToday ? 'bold' : 'normal'
                     }
                   ]}
                 >
-                  {formatDate(day.date)}
+                  {day.day}
                 </Text>
               </Pressable>
             ))}
@@ -159,6 +206,9 @@ const styles = StyleSheet.create({
   navText: {
     fontSize: 20,
     fontWeight: '300',
+  },
+  navButtonDisabled: {
+    opacity: 0.5,
   },
   monthYear: {
     fontSize: 18,
@@ -195,5 +245,9 @@ const styles = StyleSheet.create({
   dayText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  otherMonthDay: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
   },
 });
