@@ -415,38 +415,6 @@ export default function GoalsScreen() {
           </View>
         </View>
 
-        {/* Habits Summary */}
-        <View style={styles.habitsFooter}>
-          <View style={styles.habitsInfo}>
-            <Text style={styles.habitsCount}>
-              {goal.completedHabits}/{goal.totalHabits} completed today
-            </Text>
-            <View style={styles.habitsDots}>
-              {goalHabits.slice(0, 4).map((habit, index) => (
-                <View 
-                  key={habit.id}
-                  style={[
-                    styles.habitDot,
-                    { 
-                      backgroundColor: habit.completedToday ? categoryColor : theme.colors.background.tertiary,
-                      borderColor: habit.completedToday ? categoryColor : theme.colors.line
-                    }
-                  ]}
-                />
-              ))}
-              {goal.totalHabits > 4 && (
-                <Text style={styles.moreHabits}>+{goal.totalHabits - 4}</Text>
-              )}
-            </View>
-          </View>
-          
-          <TouchableOpacity 
-            style={[styles.quickActionButton, { backgroundColor: `${categoryColor}10` }]}
-            onPress={() => router.push(`/goal/${goal.id}`)}
-          >
-            <Text style={[styles.quickActionText, { color: categoryColor }]}>View</Text>
-          </TouchableOpacity>
-        </View>
       </TouchableOpacity>
     );
   };
@@ -539,16 +507,6 @@ export default function GoalsScreen() {
       {!loading && activeGoals.length > 0 && (
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Goal Enhancement Suggestions */}
-        {activeGoals.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>Boost Your Success</Text>
-            {activeGoals.slice(0, 2).map((goal) => (
-              <GoalEnhancementWrapper key={goal.id} goal={goal} />
-            ))}
-          </>
-        )}
-
         {/* Active Goals */}
         <Text style={styles.sectionTitle}>Active Goals</Text>
         <View style={styles.goalsGrid}>
@@ -582,6 +540,7 @@ export default function GoalsScreen() {
               title={habit.title}
               completed={habit.completedToday}
               currentStreak={habit.streak}
+              habitId={habit.id}
               onToggle={() => handleCompleteHabit(habit.id)}
             />
           ))}
@@ -618,6 +577,16 @@ export default function GoalsScreen() {
               {completedGoals.map(renderGoalCard)}
             </View>
           </>
+        )}
+
+        {/* Goal Enhancement Suggestions */}
+        {activeGoals.length > 0 && (
+          <View style={styles.enhancementSection}>
+            <Text style={styles.sectionTitle}>Boost Your Success</Text>
+            {activeGoals.slice(0, 2).map((goal) => (
+              <GoalEnhancementWrapper key={goal.id} goal={goal} />
+            ))}
+          </View>
         )}
       </ScrollView>
       )}
@@ -938,49 +907,6 @@ const createStyles = (theme: any) => StyleSheet.create({
     marginTop: theme.spacing.sm,
     alignItems: 'flex-start',
   },
-  habitsFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
-  },
-  habitsInfo: {
-    flex: 1,
-  },
-  habitsCount: {
-    fontSize: 13,
-    color: theme.colors.text.secondary,
-    fontWeight: '500',
-    marginBottom: theme.spacing.xs,
-  },
-  habitsDots: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  habitDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 2,
-  },
-  moreHabits: {
-    fontSize: 11,
-    color: theme.colors.text.muted,
-    marginLeft: theme.spacing.xs,
-    fontWeight: '600',
-  },
-  quickActionButton: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: 16,
-    marginLeft: theme.spacing.md,
-  },
-  quickActionText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
   habitsContainer: {
     gap: theme.spacing.sm,
     marginBottom: theme.spacing.xl,
@@ -1185,5 +1111,13 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.text.inverse,
     fontSize: 16,
     fontWeight: '600',
+  },
+  
+  // Enhancement section styles
+  enhancementSection: {
+    marginTop: theme.spacing.xl,
+    paddingTop: theme.spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.line + '40',
   },
 });

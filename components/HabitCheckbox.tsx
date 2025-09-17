@@ -1,6 +1,7 @@
 import React from 'react';
-import { Pressable, Text, StyleSheet, View } from 'react-native';
+import { Pressable, Text, StyleSheet, View, TouchableOpacity } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
+import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 
 interface HabitCheckboxProps {
@@ -9,6 +10,7 @@ interface HabitCheckboxProps {
   onToggle: () => void;
   currentStreak?: number;
   disabled?: boolean;
+  habitId?: string; // Add optional habitId for navigation
 }
 
 export function HabitCheckbox({ 
@@ -16,9 +18,11 @@ export function HabitCheckbox({
   completed, 
   onToggle, 
   currentStreak = 0,
-  disabled = false 
+  disabled = false,
+  habitId
 }: HabitCheckboxProps) {
   const { theme } = useTheme();
+  const router = useRouter();
   
   const checkboxStyle = [
     styles.checkbox,
@@ -28,18 +32,26 @@ export function HabitCheckbox({
     }
   ];
   
+  const handleTitlePress = () => {
+    if (habitId) {
+      router.push(`/habit/${habitId}`);
+    }
+  };
+
   return (
-    <Pressable
+    <View
       style={[
         styles.container,
         { backgroundColor: theme.colors.card || theme.colors.background.secondary },
         disabled && { opacity: 0.6 }
       ]}
-      onPress={onToggle}
-      disabled={disabled}
     >
       <View style={styles.content}>
-        <View style={checkboxStyle}>
+        <Pressable
+          style={checkboxStyle}
+          onPress={onToggle}
+          disabled={disabled}
+        >
           {completed && (
             <IconSymbol 
               name="checkmark" 
@@ -47,9 +59,13 @@ export function HabitCheckbox({
               color="#fff" 
             />
           )}
-        </View>
+        </Pressable>
         
-        <View style={styles.textContainer}>
+        <TouchableOpacity 
+          style={styles.textContainer}
+          onPress={habitId ? handleTitlePress : onToggle}
+          activeOpacity={habitId ? 0.7 : 1}
+        >
           <Text style={[styles.title, { color: theme.colors.text.primary }]}>
             {title}
           </Text>
@@ -59,9 +75,9 @@ export function HabitCheckbox({
               {currentStreak} day streak 🔥
             </Text>
           )}
-        </View>
+        </TouchableOpacity>
       </View>
-    </Pressable>
+    </View>
   );
 }
 

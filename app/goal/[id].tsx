@@ -591,7 +591,12 @@ export default function GoalDetailPage() {
             </View>
             <View style={styles.habitsCard}>
               {goal.habits.map((habit) => (
-                <View key={habit.id} style={styles.habitItem}>
+                <TouchableOpacity 
+                  key={habit.id} 
+                  style={styles.habitItem}
+                  onPress={() => router.push(`/habit/${habit.id}`)}
+                  activeOpacity={0.7}
+                >
                   <View style={[
                     styles.habitDot,
                     { backgroundColor: habit.completed ? '#22C55E' : '#6B7280' }
@@ -605,7 +610,8 @@ export default function GoalDetailPage() {
                   {habit.streak > 0 && (
                     <Text style={styles.habitStreak}>🔥{habit.streak}</Text>
                   )}
-                </View>
+                  <Text style={styles.habitArrow}>›</Text>
+                </TouchableOpacity>
               ))}
             </View>
           </View>
@@ -1017,11 +1023,16 @@ const createStyles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.background.secondary,
     borderRadius: theme.radius,
     padding: theme.spacing.lg,
-    gap: theme.spacing.md,
+    gap: theme.spacing.sm,
   },
   habitItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: theme.colors.background.tertiary,
+    borderRadius: 12,
+    padding: theme.spacing.md,
+    marginVertical: 2,
+    ...theme.shadows?.sm,
   },
   habitDot: {
     width: 8,
@@ -1044,6 +1055,12 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: '#F59E0B',
     fontWeight: '600',
     marginLeft: theme.spacing.sm,
+  },
+  habitArrow: {
+    fontSize: 18,
+    color: theme.colors.text.muted,
+    marginLeft: theme.spacing.sm,
+    fontWeight: '300',
   },
 
   obstaclesSection: {
