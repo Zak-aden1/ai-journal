@@ -18,14 +18,10 @@ import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppStore } from '@/stores/app';
 import { AvatarRenderer } from '@/components/avatars';
-import { AVATAR_PERSONALITIES } from '@/lib/avatarPersonality';
-import { initializeChatAI } from '@/services/ai/chat';
-import { getAIConfig } from '@/services/ai/config';
-import { generateDailyThoughts, getTodaysThoughts, getTimeUntilNextGeneration, canGenerateDailyThoughts } from '@/services/ai/thoughts';
-import type { GoalContext } from '@/services/ai/chat';
-import { AIThoughtCard } from '@/components/ai/AIThoughtCard';
 import { NextActionCard } from '@/components/goal/NextActionCard';
-import { isHabitCompletedOnDate } from '@/lib/db';
+import { GoalEnhancementCard } from '@/components/GoalEnhancementCard';
+import { useGoalEnhancement } from '@/lib/goalEnhancement';
+import { isHabitCompletedOnDate, listHabitsWithScheduleByGoal, getHabitCompletions } from '@/lib/db';
 
 interface Goal {
   id: string;
@@ -85,14 +81,12 @@ export default function GoalDetailPage() {
 
   const [goal, setGoal] = useState<Goal | null>(null);
   const [loading, setLoading] = useState(true);
-  const [thoughtLoading, setThoughtLoading] = useState(false);
-  const [thoughtError, setThoughtError] = useState<string | null>(null);
-  const [avatarThought, setAvatarThought] = useState<{ text: string; updatedAt: number } | null>(null);
-  const [canGenerateThought, setCanGenerateThought] = useState(true);
-  const [nextAvailableIn, setNextAvailableIn] = useState<string | null>(null);
   // Next Action state (must be before any early returns)
   const [snoozed, setSnoozed] = useState<Set<string>>(new Set());
   const styles = createStyles(theme);
+  
+  // Goal Enhancement data (must be called before any conditional returns)
+  const enhancement = useGoalEnhancement(id);
   
   // Animation values
   const progressWidth = useSharedValue(0);
@@ -188,76 +182,7 @@ export default function GoalDetailPage() {
     progressWidth.value = withDelay(400, withTiming(goal.progress, { duration: 1000 }));
   }, [goal?.progress, avatarScale, vitalityOpacity, progressWidth, goal, loading]);
 
-  // Load today's thoughts availability and cached value
-  useEffect(() => {
-    const run = async () => {
-      if (!goal) return;
-      try {
-        // Ensure AI is configured
-        initializeChatAI(getAIConfig());
 
-        const todays = await getTodaysThoughts(goal.id);
-        if (todays) {
-          setAvatarThought({ text: todays.thoughts, updatedAt: new Date(todays.generated_at).getTime() });
-          setCanGenerateThought(false);
-          setNextAvailableIn(await getTimeUntilNextGeneration(goal.id));
-        } else {
-          setAvatarThought(null);
-          const allowed = await canGenerateDailyThoughts(goal.id);
-          setCanGenerateThought(allowed);
-          if (!allowed) setNextAvailableIn(await getTimeUntilNextGeneration(goal.id));
-        }
-      } catch (e) {
-        console.warn('Thoughts init error', e);
-      }
-    };
-    run();
-  }, [goal?.id]);
-
-  const buildGoalContext = (): GoalContext | null => {
-    if (!goal) return null;
-    // Map habits for AI context (id/title only)
-    const mappedHabits = goal.habits.map(h => ({ id: h.id, title: h.title } as any));
-    const personality = AVATAR_PERSONALITIES[avatar.type].traits;
-    return {
-      id: goal.id,
-      title: goal.title,
-      why: goal.why,
-      obstacles: goal.obstacles || [],
-      habits: mappedHabits as any,
-      completedHabitsToday: goal.completedHabits,
-      totalHabits: goal.totalHabits,
-      avatar: {
-        type: avatar.type,
-        name: avatar.name,
-        vitality: avatar.vitality,
-        personality,
-      },
-      userProgress: {
-        streaks: Object.fromEntries(goal.habits.map(h => [h.id, h.streak])),
-        recentCompletions: goal.completedHabits,
-        overallProgress: goal.progress,
-      },
-    };
-  };
-
-  const handleGenerateThoughts = async () => {
-    if (!goal) return;
-    setThoughtError(null);
-    setThoughtLoading(true);
-    try {
-      const context = buildGoalContext();
-      if (!context) throw new Error('Missing goal context');
-      const result = await generateDailyThoughts(context);
-      setAvatarThought({ text: result.thoughts, updatedAt: new Date(result.generated_at).getTime() });
-      setCanGenerateThought(false);
-      setNextAvailableIn(await getTimeUntilNextGeneration(goal.id));
-    } catch (e: any) {
-      setThoughtError(e?.message || 'Failed to generate thoughts');
-    } finally {
-      setThoughtLoading(false);
-    }
-  };
 
   // Animated styles - must be called before any conditional returns
   const animatedAvatarStyle = useAnimatedStyle(() => ({
@@ -479,21 +404,6 @@ export default function GoalDetailPage() {
           </View>
         )}
 
-        {/* Avatar's Thoughts */}
-        <View style={styles.section}>
-          <AIThoughtCard
-            avatarName={avatar.name}
-            text={avatarThought?.text}
-            updatedAt={avatarThought?.updatedAt}
-            loading={thoughtLoading}
-            error={thoughtError || undefined}
-            canGenerate={canGenerateThought}
-            nextAvailableIn={nextAvailableIn || undefined}
-            accentColor={categoryColor}
-            provenance={[`Streak ${Math.max(...goal.habits.map(h => h.streak), 0)}`, `${goal.completedHabits}/${goal.totalHabits} today`]}
-            onGenerate={handleGenerateThoughts}
-          />
-        </View>
 
         {/* Avatar Companion Section */}
         <View style={styles.section}>
@@ -632,6 +542,24 @@ export default function GoalDetailPage() {
                 </View>
               ))}
             </View>
+          </View>
+        )}
+
+        {/* Goal Enhancement Section */}
+        {enhancement && enhancement.suggestions.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionIcon}>
+                <Text style={styles.sectionEmoji}>🚀</Text>
+              </View>
+              <Text style={styles.sectionTitle}>Boost Your Success</Text>
+            </View>
+            <GoalEnhancementCard
+              goalId={goal.id}
+              goalTitle={goal.title}
+              completenessScore={enhancement.completenessScore}
+              suggestions={enhancement.suggestions}
+            />
           </View>
         )}
 

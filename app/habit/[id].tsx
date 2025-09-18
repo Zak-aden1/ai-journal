@@ -21,6 +21,9 @@ import { useTheme } from '@/hooks/useTheme';
 import { useAppStore } from '@/stores/app';
 import { HabitStreakCalendar } from '@/components/HabitStreakCalendar';
 import { HabitEditModal } from '@/components/HabitEditModal';
+import { AIThoughtCard } from '@/components/ai/AIThoughtCard';
+import { generateHabitAnalysis } from '@/services/ai/habitAnalysis';
+import type { HabitCompletionRecord, HabitAnalysisResponse } from '@/services/ai/habitAnalysis';
 import { isHabitCompletedOnDate, getHabitCompletions, listScheduledHabitsForGoal, listScheduledStandaloneHabits } from '@/lib/db';
 
 interface HabitData {
@@ -68,6 +71,7 @@ export default function HabitDetailPage() {
     goalsWithIds, 
     habitsWithIds, 
     standaloneHabits,
+    avatar,
     isHydrated,
     getHabitStreak,
     toggleHabitCompletion,
@@ -81,6 +85,14 @@ export default function HabitDetailPage() {
   const [weeklyScore, setWeeklyScore] = useState<{completed: number; planned: number}>({ completed: 0, planned: 0 });
   const [showDaySheet, setShowDaySheet] = useState(false);
   const [selectedDay, setSelectedDay] = useState<{date: string; completed: boolean; planned?: boolean} | null>(null);
+  const [undoInfo, setUndoInfo] = useState<{visible: boolean; date: string} | null>(null);
+  
+  // Avatar analysis state
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [habitAnalysis, setHabitAnalysis] = useState<HabitAnalysisResponse | null>(null);
+  const [canGenerateAnalysis, setCanGenerateAnalysis] = useState(true); // Allow daily generation
+  const [lastAnalysisDate, setLastAnalysisDate] = useState<string | null>(null);
   
   const styles = createStyles(theme);
   
@@ -142,19 +154,7 @@ export default function HabitDetailPage() {
 
       setHabit(habitData);
 
-      // Calculate stats (simplified for now)
-      const stats: HabitStats = {
-        totalCompletions: streakData.total || 0,
-        longestStreak: streakData.longest || 0,
-        currentStreak: streakData.current,
-        successRate: 85, // TODO: Calculate from actual data
-        weeklyCompletions: Math.min(streakData.current, 7),
-        monthlyCompletions: Math.min(streakData.current, 30),
-      };
-
-      setHabitStats(stats);
-
-      // Load schedule for planned days
+      // Load schedule for planned days (used for metrics and calendar)
       let scheduleDays: string[] = [];
       let isDaily = false;
       try {
@@ -168,6 +168,31 @@ export default function HabitDetailPage() {
           if (s) { scheduleDays = s.daysOfWeek || []; isDaily = s.isDaily; }
         }
       } catch {}
+
+      // Calculate stats from data windows
+      const last365 = await getHabitCompletions(foundHabit.id, 365);
+      const totalCompletions = last365.filter(d => d.completed).length;
+
+      const last28 = await getHabitCompletions(foundHabit.id, 28);
+      const done28 = last28.filter(d => d.completed).length;
+      const planned28 = last28.filter(d => {
+        if (isDaily) return true;
+        const day = new Date(d.date).getDay();
+        const dow = ['sun','mon','tue','wed','thu','fri','sat'][day];
+        return scheduleDays.includes(dow);
+      }).length || (isDaily ? 28 : scheduleDays.length);
+      const successRate = planned28 > 0 ? Math.round((done28 / planned28) * 100) : 0;
+
+      const stats: HabitStats = {
+        totalCompletions,
+        longestStreak: streakData.longest || 0,
+        currentStreak: streakData.current,
+        successRate,
+        weeklyCompletions: Math.min(done28, 7),
+        monthlyCompletions: Math.min(done28, 30),
+      };
+
+      setHabitStats(stats);
 
       // Build completion calendar data (last 35 days) from DB
       const completions = await getHabitCompletions(foundHabit.id, 35);
@@ -202,6 +227,21 @@ export default function HabitDetailPage() {
     loadHabitData();
   }, [isHydrated, id, loadHabitData]);
 
+  // Avatar analysis loading effect
+  useEffect(() => {
+    if (!habit || !isHydrated) return;
+    
+    // Check if we already generated analysis today
+    const today = new Date().toISOString().split('T')[0];
+    const canGenerate = lastAnalysisDate !== today;
+    setCanGenerateAnalysis(canGenerate);
+    
+    // Clear previous day's analysis if it's a new day
+    if (lastAnalysisDate && lastAnalysisDate !== today) {
+      setHabitAnalysis(null);
+    }
+  }, [habit, isHydrated, lastAnalysisDate]);
+
   // Animation effects
   useEffect(() => {
     if (!habit || !habitStats || loading) return;
@@ -220,6 +260,10 @@ export default function HabitDetailPage() {
     if (!habit) return;
     try {
       await toggleHabitCompletion(habit.id);
+      // show undo for today
+      const todayIso = new Date().toISOString().split('T')[0];
+      setUndoInfo({ visible: true, date: todayIso });
+      setTimeout(() => setUndoInfo(null), 8000);
       await loadHabitData(); // Refresh data
     } catch (error) {
       console.error('Error toggling habit completion:', error);
@@ -255,6 +299,86 @@ export default function HabitDetailPage() {
   const handleViewGoal = () => {
     if (habit?.goalId) {
       router.push(`/goal/${habit.goalId}`);
+    }
+  };
+
+  const generateAnalysis = async () => {
+    // Comprehensive validation before analysis generation
+    if (!habit || !habitStats || !canGenerateAnalysis || !completionData) {
+      console.warn('Analysis generation blocked: missing required data', {
+        habit: !!habit,
+        habitStats: !!habitStats,
+        canGenerate: canGenerateAnalysis,
+        completionData: !!completionData
+      });
+      return;
+    }
+
+    // Prevent multiple simultaneous requests
+    if (analysisLoading) {
+      console.warn('Analysis already in progress, ignoring request');
+      return;
+    }
+    
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    
+    // Clear any existing analysis to show loading state immediately
+    setHabitAnalysis(null);
+    
+    try {
+      // Convert completion data to the format expected by analysis service
+      const completionHistory: HabitCompletionRecord[] = completionData.map(item => ({
+        date: item.date,
+        completed: item.completed,
+        planned: item.planned || false
+      }));
+
+      // Get schedule information (simplified - could be enhanced)
+      const schedule = {
+        isDaily: true, // Default assumption - could be made dynamic
+        daysOfWeek: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] // Default daily
+      };
+
+      // Build analysis request using the new service
+      const analysisRequest = {
+        habitId: habit.id,
+        habitTitle: habit.title,
+        category: habit.category,
+        avatar: {
+          name: avatar.name,
+          type: avatar.type,
+        },
+        performance: {
+          currentStreak: habit.streak,
+          longestStreak: habitStats.longestStreak,
+          totalCompletions: habitStats.totalCompletions,
+          successRate: habitStats.successRate,
+          weeklyCompletions: habitStats.weeklyCompletions,
+          monthlyCompletions: habitStats.monthlyCompletions,
+        },
+        completionHistory,
+        schedule,
+        context: {
+          isStandalone: habit.isStandalone,
+          goalTitle: habit.goalTitle,
+          goalId: habit.goalId,
+        },
+      };
+
+      const analysis = await generateHabitAnalysis(analysisRequest);
+      setHabitAnalysis(analysis);
+      
+      // Mark today as analysis generated
+      const today = new Date().toISOString().split('T')[0];
+      setLastAnalysisDate(today);
+      setCanGenerateAnalysis(false);
+      
+    } catch (error: any) {
+      console.error('Error generating analysis:', error);
+      setAnalysisError(error.message || 'Failed to generate analysis');
+    } finally {
+      setAnalysisLoading(false);
     }
   };
 
@@ -429,6 +553,34 @@ export default function HabitDetailPage() {
             </Animated.View>
           )}
 
+          {/* Avatar Analysis */}
+          <View style={styles.section}>
+            <AIThoughtCard
+              avatarName={avatar.name}
+              text={habitAnalysis?.analysis}
+              updatedAt={habitAnalysis ? new Date(habitAnalysis.generated_at).getTime() : null}
+              loading={analysisLoading}
+              error={analysisError}
+              canGenerate={canGenerateAnalysis && !analysisLoading && !!habitStats && !!completionData && !loading}
+              nextAvailableIn={
+                loading ? "Loading habit data..." :
+                !habitStats || !completionData ? "Waiting for data..." :
+                analysisLoading ? "Generating analysis..." :
+                canGenerateAnalysis ? null : "Available tomorrow"
+              }
+              accentColor={categoryColor}
+              provenance={habitStats ? [
+                `${habit.streak} day streak`,
+                `${habitStats.successRate}% success rate`,
+                `${habitStats.totalCompletions} total completions`,
+                habit.isStandalone ? 'Standalone habit' : `Part of: ${habit.goalTitle}`
+              ] : [
+                'Loading habit statistics...'
+              ]}
+              onGenerate={generateAnalysis}
+            />
+          </View>
+
           {/* Completion Calendar */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Completion History</Text>
@@ -466,6 +618,23 @@ export default function HabitDetailPage() {
           </View>
         </View>
       </Modal>
+
+      {/* Undo banner */}
+      {undoInfo?.visible && (
+        <View style={[styles.undoBar, { backgroundColor: theme.colors.background.secondary, borderColor: theme.colors.background.tertiary }]}>
+          <Text style={styles.undoText}>Marked complete</Text>
+          <TouchableOpacity onPress={async () => {
+            try {
+              const d = new Date(undoInfo.date);
+              await toggleHabitCompletion(habit.id, d);
+              setUndoInfo(null);
+              await loadHabitData();
+            } catch (e) { /* ignore */ }
+          }}>
+            <Text style={[styles.undoAction, { color: theme.colors.primary }]}>Undo</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Edit Modal */}
       <HabitEditModal
@@ -741,4 +910,20 @@ const createStyles = (theme: any) => StyleSheet.create({
   sheetPrimaryText: { color: '#fff', fontWeight: '700' },
   sheetClose: { marginTop: theme.spacing.md, alignSelf: 'center', paddingHorizontal: theme.spacing.xl, paddingVertical: theme.spacing.sm, backgroundColor: theme.colors.background.secondary, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.background.tertiary },
   sheetCloseText: { color: theme.colors.text.primary, fontWeight: '600' },
+  // Undo bar
+  undoBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 24,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+  },
+  undoText: { color: theme.colors.text.primary, fontWeight: '600' },
+  undoAction: { fontWeight: '800' },
 });

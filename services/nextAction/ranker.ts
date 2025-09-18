@@ -8,6 +8,8 @@ export type RankedHabit = {
   timeType?: TimeType;
   specificTime?: string | null;
   daysOfWeek?: string[]; // ['mon', 'tue']
+  isDaily?: boolean;
+  recentRate?: number; // 0..1 completion rate over recent window
 };
 
 function hourFromSpecific(time?: string | null): number | null {
@@ -71,10 +73,10 @@ export function rankHabits(habits: RankedHabit[], opts?: { excludeIds?: Set<stri
       const base = 0;
       const prox = proximityScore(h, now);
       const need = streakNeedScore(h.streak);
-      const score = base + prox + need;
+      const rateAdj = typeof h.recentRate === 'number' ? (1 - h.recentRate) * 8 : 0; // lower recent rate => higher priority
+      const score = base + prox + need + rateAdj;
       return { ...h, _score: score } as any;
     })
     .sort((a: any, b: any) => b._score - a._score)
     .map(({ _score, ...rest }: any) => rest);
 }
-

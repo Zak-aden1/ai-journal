@@ -32,6 +32,28 @@ export function AIThoughtCard({
   const styles = useMemo(() => createStyles(theme), [theme]);
   const accent = accentColor || theme.colors.primary;
 
+  // Loading spinner animation
+  const spinValue = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    if (loading) {
+      const spin = Animated.loop(
+        Animated.timing(spinValue, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        })
+      );
+      spin.start();
+      return () => spin.stop();
+    }
+  }, [loading, spinValue]);
+
+  const spinRotation = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
   // Sparkle ping animation on mount
   const sparkleScale = useRef(new Animated.Value(0.8)).current;
   const sparkleOpacity = useRef(new Animated.Value(0)).current;
@@ -76,7 +98,7 @@ export function AIThoughtCard({
             >
               ✨
             </Animated.Text>
-            <Text style={styles.titleText}>{avatarName}'s Thoughts</Text>
+            <Text style={styles.titleText}>{avatarName}&apos;s Analysis</Text>
             <View style={[styles.aiPill, { backgroundColor: `${accent}33`, borderColor: `${accent}66` }]}> 
               <Text style={[styles.aiPillText, { color: accent }]}>AI</Text>
             </View>
@@ -87,7 +109,7 @@ export function AIThoughtCard({
               onPress={onGenerate}
               disabled={!canGenerate}
               accessibilityRole="button"
-              accessibilityLabel={canGenerate ? "Generate today's thoughts" : 'Generation locked until tomorrow'}
+              accessibilityLabel={canGenerate ? "Generate today&apos;s analysis" : 'Generation locked until tomorrow'}
             >
               <Text style={styles.generateBtnText}>
                 {canGenerate ? "Generate" : (nextAvailableIn ? `In ${nextAvailableIn}` : 'Tomorrow')}
@@ -106,7 +128,7 @@ export function AIThoughtCard({
           ) : text ? (
             <Text style={styles.contentText}>{text}</Text>
           ) : (
-            <Text style={styles.emptyText}>No thoughts yet for today.</Text>
+            <Text style={styles.emptyText}>No analysis yet for today.</Text>
           )}
           {error && <Text style={styles.errorText}>{error}</Text>}
         </View>
@@ -132,9 +154,31 @@ export function AIThoughtCard({
         )}
 
         {/* Secondary action (optional) */}
-        {!text && !loading && canGenerate && (
-          <TouchableOpacity style={[styles.primaryCTA, { backgroundColor: accent }]} onPress={onGenerate}>
-            <Text style={styles.primaryCTAText}>Generate today’s thoughts</Text>
+        {!text && canGenerate && (
+          <TouchableOpacity 
+            style={[
+              styles.primaryCTA, 
+              { backgroundColor: accent },
+              loading && styles.primaryCTALoading
+            ]} 
+            onPress={onGenerate}
+            disabled={loading}
+            accessibilityRole="button"
+            accessibilityLabel={loading ? "Generating analysis..." : "Generate today's analysis"}
+          >
+            {loading ? (
+              <View style={styles.loadingContainer}>
+                <Animated.View 
+                  style={[
+                    styles.loadingSpinner,
+                    { transform: [{ rotate: spinRotation }] }
+                  ]} 
+                />
+                <Text style={[styles.primaryCTAText, styles.loadingText]}>Analyzing...</Text>
+              </View>
+            ) : (
+              <Text style={styles.primaryCTAText}>Generate today&apos;s analysis</Text>
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -257,6 +301,26 @@ const createStyles = (theme: any) => StyleSheet.create({
   primaryCTAText: {
     color: '#FFFFFF',
     fontWeight: '700',
+  },
+  primaryCTALoading: {
+    opacity: 0.8,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  loadingSpinner: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderTopColor: 'white',
+  },
+  loadingText: {
+    opacity: 0.9,
   },
 });
 

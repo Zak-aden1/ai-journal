@@ -16,9 +16,7 @@ import { HabitStreakStats } from '@/components/HabitStreakStats';
 import { HabitStreakCalendar } from '@/components/HabitStreakCalendar';
 import { HabitCreationModal } from '@/components/HabitCreationModal';
 import { CreateGoalModal } from '@/components/CreateGoalModal';
-import { GoalEnhancementCard } from '@/components/GoalEnhancementCard';
 import { GoalPlantAvatar } from '@/components/avatars';
-import { useGoalEnhancement } from '@/lib/goalEnhancement';
 import { isHabitCompletedOnDate } from '@/lib/db';
 import { AvatarStoryBadge } from '@/components/AvatarStoryBadge';
 import { AvatarStoryModal } from '@/components/AvatarStoryModal';
@@ -223,23 +221,6 @@ export default function GoalsScreen() {
   const activeGoals = goals.filter(g => g.isActive);
   const completedGoals = goals.filter(g => !g.isActive);
 
-  // Component to use hook correctly
-  const GoalEnhancementWrapper = ({ goal }: { goal: Goal }) => {
-    const enhancement = useGoalEnhancement(goal.id);
-    
-    if (!enhancement || enhancement.suggestions.length === 0) {
-      return null;
-    }
-    
-    return (
-      <GoalEnhancementCard
-        goalId={goal.id}
-        goalTitle={goal.title}
-        completenessScore={enhancement.completenessScore}
-        suggestions={enhancement.suggestions}
-      />
-    );
-  };
 
   const getGoalHabits = (goalId: string) => {
     return habits.filter(h => h.goalId === goalId);
@@ -579,15 +560,6 @@ export default function GoalsScreen() {
           </>
         )}
 
-        {/* Goal Enhancement Suggestions */}
-        {activeGoals.length > 0 && (
-          <View style={styles.enhancementSection}>
-            <Text style={styles.sectionTitle}>Boost Your Success</Text>
-            {activeGoals.slice(0, 2).map((goal) => (
-              <GoalEnhancementWrapper key={goal.id} goal={goal} />
-            ))}
-          </View>
-        )}
       </ScrollView>
       )}
 
