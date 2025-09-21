@@ -1,245 +1,748 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import NetInfo from '@react-native-community/netinfo';
 import { useTheme } from '@/hooks/useTheme';
-
-interface GoalEnhancementSuggestion {
-  id: string;
-  title: string;
-  description: string;
-  impact: 'low' | 'medium' | 'high';
-  action: () => void;
-}
+import { useToast } from '@/hooks/useToast';
+import { Toast } from '@/components/Toast';
+import {
+  GoalCreationService,
+  useGoalEnhancement,
+  type GoalCreationRequest,
+  type GoalCreationResponse
+} from '@/services/ai/goalCreation';
 
 interface GoalEnhancementCardProps {
-  goalId: string;
-  goalTitle: string;
-  completenessScore: number; // 0-100
-  suggestions: GoalEnhancementSuggestion[];
+  goalInput: string;
+  userId: string;
+  avatarType: 'plant' | 'pet' | 'robot' | 'base';
+  avatarName: string;
+  existingGoals?: { title: string; category: string }[];
+  goalCategory?: string;
+  onEnhancedGoalSelect?: (goal: string) => void;
+  onHabitsSelect?: (habits: string[]) => void;
+  onCategorySelect?: (category: string) => void;
 }
 
-const IMPACT_COLORS = {
-  low: '#10B981',    // Green
-  medium: '#F59E0B', // Orange  
-  high: '#EF4444',   // Red
-};
-
-const IMPACT_LABELS = {
-  low: 'Small boost',
-  medium: 'Good boost',
-  high: 'Big impact',
-};
-
-export function GoalEnhancementCard({ 
-  goalId, 
-  goalTitle, 
-  completenessScore, 
-  suggestions 
+export function GoalEnhancementCard({
+  goalInput,
+  userId,
+  avatarType,
+  avatarName,
+  existingGoals,
+  goalCategory,
+  onEnhancedGoalSelect,
+  onHabitsSelect,
+  onCategorySelect
 }: GoalEnhancementCardProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme);
 
-  const getCompletenessLevel = (score: number) => {
-    if (score >= 80) return { level: 'Optimized', color: '#10B981', emoji: '🌟' };
-    if (score >= 60) return { level: 'Strong', color: '#F59E0B', emoji: '💪' };
-    if (score >= 40) return { level: 'Good', color: '#6366F1', emoji: '👍' };
-    return { level: 'Basic', color: '#6B7280', emoji: '🌱' };
+  const { enhanceGoal, isLoading, error, usageRemaining, clearError } = useGoalEnhancement();
+  const [enhancement, setEnhancement] = useState<GoalCreationResponse | null>(null);
+  const [hasEnhanced, setHasEnhanced] = useState(false);
+  const [isConnected, setIsConnected] = useState<boolean | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const { toasts, showError, showWarning, showInfo } = useToast();
+
+  // Monitor network connectivity
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsConnected(state.isConnected);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const handleEnhance = async () => {
+    clearError();
+
+    // Validate input first
+    const validation = GoalCreationService.validateGoalInput(goalInput);
+    if (!validation.isValid) {
+      showError(validation.error || 'Please enter a valid goal');
+      return;
+    }
+
+    // Check network connectivity
+    if (isConnected === false) {
+      showError('No internet connection - AI features require internet access');
+      return;
+    }
+
+    // Check if we have connection status yet
+    if (isConnected === null) {
+      showWarning('Checking connection...');
+      return;
+    }
+
+    const request: GoalCreationRequest = {
+      userInput: goalInput,
+      userId,
+      context: {
+        avatarType,
+        avatarName,
+        existingGoals,
+        goalCategory
+      }
+    };
+
+    const result = await enhanceGoal(request);
+    if (result) {
+      setEnhancement(result);
+      setHasEnhanced(true);
+      showInfo('🪄 Goal transformed into SMART format!');
+    } else if (error) {
+      // Error will be set by the hook, show it as toast
+      showError(error);
+    }
   };
 
-  const completeness = getCompletenessLevel(completenessScore);
-  
-  if (suggestions.length === 0) return null;
+  const handleSelectEnhanced = () => {
+    if (enhancement && onEnhancedGoalSelect) {
+      onEnhancedGoalSelect(enhancement.enhanced);
+    }
+  };
+
+  const handleSelectAlternative = (alternative: string) => {
+    if (onEnhancedGoalSelect) {
+      onEnhancedGoalSelect(alternative);
+    }
+  };
+
+  const handleSelectHabits = () => {
+    if (enhancement && onHabitsSelect) {
+      onHabitsSelect(enhancement.suggestedHabits);
+    }
+  };
+
+  const handleSelectCategory = () => {
+    if (enhancement && onCategorySelect) {
+      onCategorySelect(enhancement.suggestedCategory);
+    }
+  };
+
+  // Only show the card if goal input has some content
+  if (goalInput.trim().length < 3) {
+    return null;
+  }
+
+  // Check button state
+  const validation = GoalCreationService.validateGoalInput(goalInput);
+  const isButtonDisabled = isLoading || !validation.isValid || isConnected === false;
 
   return (
-    <View style={styles.card}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.goalInfo}>
-          <Text style={styles.goalTitle} numberOfLines={1}>{goalTitle}</Text>
-          <View style={styles.completenessContainer}>
-            <View style={[styles.completenessIndicator, { backgroundColor: completeness.color }]}>
-              <Text style={styles.completenessEmoji}>{completeness.emoji}</Text>
-            </View>
-            <Text style={styles.completenessText}>
-              {completeness.level} ({completenessScore}% complete)
-            </Text>
-          </View>
-        </View>
-        <View style={styles.scoreContainer}>
-          <Text style={styles.scoreNumber}>{completenessScore}</Text>
-          <Text style={styles.scoreLabel}>Score</Text>
-        </View>
-      </View>
-
-      {/* Enhancement Suggestions */}
-      <View style={styles.suggestionsContainer}>
-        <Text style={styles.suggestionsTitle}>
-          {suggestions.length === 1 ? '1 suggestion' : `${suggestions.length} suggestions`} to boost your success
-        </Text>
-        
-        {suggestions.slice(0, 2).map((suggestion, index) => (
+    <View style={styles.container}>
+      {/* Toast Notifications */}
+      {toasts.map(toast => (
+        <Toast key={toast.id} toast={toast} onHide={() => {}} />
+      ))}
+      {/* Enhancement Button */}
+      {!hasEnhanced && (
+        <View>
           <TouchableOpacity
-            key={suggestion.id}
-            style={styles.suggestionItem}
-            onPress={suggestion.action}
+            style={[
+              styles.premiumEnhanceButton,
+              isButtonDisabled && styles.premiumEnhanceButtonDisabled
+            ]}
+            onPress={handleEnhance}
+            disabled={isButtonDisabled}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['#667eea', '#764ba2', '#f093fb']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.buttonGradientContainer}
+            >
+              <View style={[
+                styles.buttonGlassEffect,
+                isButtonDisabled && styles.buttonGlassEffectDisabled
+              ]}>
+                {isLoading ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                    <Text style={styles.loadingText}>Enhancing...</Text>
+                  </View>
+                ) : (
+                  <View style={styles.buttonContentContainer}>
+                    <View style={styles.iconContainer}>
+                      <Text style={styles.magicIcon}>🪄</Text>
+                    </View>
+                    <View style={styles.textContainer}>
+                      <Text style={[
+                        styles.premiumButtonText,
+                        isButtonDisabled && styles.premiumButtonTextDisabled
+                      ]}>
+                        Make it SMART
+                      </Text>
+                      {usageRemaining !== null && (
+                        <Text style={styles.premiumUsageText}>{usageRemaining} uses remaining</Text>
+                      )}
+                    </View>
+                  </View>
+                )}
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Status Messages */}
+          {isConnected === false && (
+            <View style={styles.premiumStatusContainer}>
+              <Text style={styles.premiumStatusIcon}>📶</Text>
+              <Text style={styles.premiumStatusText}>Internet connection required for AI enhancement</Text>
+            </View>
+          )}
+          {!validation.isValid && goalInput.trim().length >= 3 && (
+            <View style={styles.premiumStatusContainer}>
+              <Text style={styles.premiumStatusIcon}>✨</Text>
+              <Text style={styles.premiumStatusText}>{validation.error}</Text>
+            </View>
+          )}
+          {isConnected === null && (
+            <View style={styles.premiumStatusContainer}>
+              <Text style={styles.premiumStatusIcon}>🔄</Text>
+              <Text style={styles.premiumStatusText}>Checking connection...</Text>
+            </View>
+          )}
+        </View>
+      )}
+
+
+      {/* Enhancement Results - Compact Design */}
+      {enhancement && (
+        <View style={styles.resultsContainer}>
+          {/* Compact Goal Rating */}
+          <View style={styles.compactRatingContainer}>
+            <View style={styles.ratingHeader}>
+              <Text style={styles.compactRatingTitle}>Goal Rating</Text>
+              <View style={styles.starsContainer}>
+                <Text style={[styles.stars, { color: GoalCreationService.getStarColor(enhancement.originalRating.stars) }]}>
+                  {GoalCreationService.getStarDisplay(enhancement.originalRating.stars)}
+                </Text>
+                <Text style={styles.starCount}>{enhancement.originalRating.stars}/5</Text>
+              </View>
+            </View>
+            <Text style={styles.compactFeedback} numberOfLines={2}>{enhancement.originalRating.feedback}</Text>
+          </View>
+
+          {/* Enhanced Goal - Always visible if different */}
+          {enhancement.originalRating.stars < 5 && (
+            <TouchableOpacity style={styles.compactEnhancedGoal} onPress={handleSelectEnhanced}>
+              <Text style={styles.enhancedLabel}>✨ Enhanced:</Text>
+              <Text style={styles.compactEnhancedText} numberOfLines={2}>{enhancement.enhanced}</Text>
+              <Text style={styles.compactSelectText}>Tap to use</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Expand/Collapse Toggle */}
+          <TouchableOpacity
+            style={styles.premiumExpandButton}
+            onPress={() => setIsExpanded(!isExpanded)}
             activeOpacity={0.7}
           >
-            <View style={styles.suggestionContent}>
-              <View style={styles.suggestionHeader}>
-                <Text style={styles.suggestionTitle}>{suggestion.title}</Text>
-                <View style={[
-                  styles.impactBadge, 
-                  { backgroundColor: IMPACT_COLORS[suggestion.impact] + '15' }
-                ]}>
-                  <Text style={[
-                    styles.impactText, 
-                    { color: IMPACT_COLORS[suggestion.impact] }
-                  ]}>
-                    {IMPACT_LABELS[suggestion.impact]}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.suggestionDescription} numberOfLines={2}>
-                {suggestion.description}
-              </Text>
-            </View>
-            <Text style={styles.suggestionArrow}>→</Text>
-          </TouchableOpacity>
-        ))}
-
-        {suggestions.length > 2 && (
-          <TouchableOpacity style={styles.viewAllButton}>
-            <Text style={styles.viewAllText}>
-              View {suggestions.length - 2} more suggestions
+            <Text style={styles.expandIcon}>
+              {isExpanded ? '🔼' : '🔽'}
+            </Text>
+            <Text style={styles.premiumExpandButtonText}>
+              {isExpanded ? 'Show Less' : 'Show More Options'}
             </Text>
           </TouchableOpacity>
-        )}
-      </View>
+
+          {/* Expanded Content */}
+          {isExpanded && (
+            <View style={styles.expandedContent}>
+              {/* Missing SMART Elements */}
+              {enhancement.originalRating.missing.length > 0 && (
+                <View style={styles.missingContainer}>
+                  <Text style={styles.missingTitle}>Missing SMART elements:</Text>
+                  {enhancement.originalRating.missing.map((item, index) => (
+                    <Text key={index} style={styles.missingItem}>• {item}</Text>
+                  ))}
+                </View>
+              )}
+
+              {/* Alternatives */}
+              {enhancement.improvements.alternatives.length > 0 && (
+                <View style={styles.alternativesContainer}>
+                  <Text style={styles.alternativesTitle}>💡 Other Options</Text>
+                  {GoalCreationService.formatAlternatives(enhancement.improvements.alternatives).map((alt, index) => (
+                    <TouchableOpacity key={index} style={styles.alternative} onPress={() => handleSelectAlternative(alt)}>
+                      <Text style={styles.alternativeText}>{alt}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* Suggested Category */}
+              {enhancement.suggestedCategory && enhancement.suggestedCategory !== goalCategory && (
+                <View style={styles.categoryContainer}>
+                  <Text style={styles.categoryTitle}>🎯 Suggested Category</Text>
+                  <TouchableOpacity style={styles.categoryButton} onPress={handleSelectCategory}>
+                    <Text style={styles.categoryText}>{enhancement.suggestedCategory}</Text>
+                    <Text style={styles.selectText}>Tap to apply</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Suggested Habits */}
+              {enhancement.suggestedHabits.length > 0 && (
+                <View style={styles.habitsContainer}>
+                  <Text style={styles.habitsTitle}>🔄 Supporting Habits</Text>
+                  <TouchableOpacity style={styles.habitsButton} onPress={handleSelectHabits}>
+                    {GoalCreationService.formatSuggestedHabits(enhancement.suggestedHabits).map((habit, index) => (
+                      <Text key={index} style={styles.habitText}>• {habit}</Text>
+                    ))}
+                    <Text style={styles.selectText}>Tap to add these habits</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Context Warnings */}
+              {enhancement.contextWarnings && enhancement.contextWarnings.length > 0 && (
+                <View style={styles.warningsContainer}>
+                  <Text style={styles.warningsTitle}>⚠️ Note</Text>
+                  {enhancement.contextWarnings.map((warning, index) => (
+                    <Text key={index} style={styles.warningText}>{warning}</Text>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Usage Remaining - Compact */}
+          <Text style={styles.compactUsageRemaining}>
+            {enhancement.usageRemaining} uses left today
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
 
 const createStyles = (theme: any) => StyleSheet.create({
-  card: {
-    backgroundColor: theme.colors.background.secondary,
+  container: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: theme.colors.primary,
-    ...theme.shadows.sm,
+    marginVertical: 12,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-  },
-  goalInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  goalTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: 8,
-  },
-  completenessContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  completenessIndicator: {
-    width: 24,
-    height: 24,
+  enhanceButton: {
+    backgroundColor: '#6366f1',
     borderRadius: 12,
+    padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    minHeight: 56,
   },
-  completenessEmoji: {
-    fontSize: 12,
+  enhanceButtonDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#6b7280',
   },
-  completenessText: {
-    fontSize: 14,
-    color: theme.colors.text.secondary,
-    fontWeight: '500',
-  },
-  scoreContainer: {
-    alignItems: 'center',
-    backgroundColor: theme.colors.background.tertiary,
-    borderRadius: 8,
-    padding: 8,
-    minWidth: 50,
-  },
-  scoreNumber: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-  },
-  scoreLabel: {
-    fontSize: 11,
-    color: theme.colors.text.secondary,
-    fontWeight: '500',
-  },
-  suggestionsContainer: {
-    gap: 8,
-  },
-  suggestionsTitle: {
-    fontSize: 14,
+  enhanceButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: 4,
   },
-  suggestionItem: {
+  usageText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    opacity: 0.8,
+    marginTop: 4,
+  },
+  // Premium button styles
+  premiumEnhanceButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+  },
+  premiumEnhanceButtonDisabled: {
+    opacity: 0.6,
+    elevation: 2,
+    shadowOpacity: 0.1,
+  },
+  buttonGradientContainer: {
+    borderRadius: 16,
+    padding: 2,
+  },
+  buttonGlassEffect: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  buttonGlassEffectDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  buttonContentContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.background.tertiary + '40',
+    justifyContent: 'center',
+  },
+  iconContainer: {
+    marginRight: 12,
+    transform: [{ scale: 1.2 }],
+  },
+  magicIcon: {
+    fontSize: 20,
+    textShadowColor: 'rgba(255, 255, 255, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  textContainer: {
+    alignItems: 'center',
+  },
+  premiumButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  premiumButtonTextDisabled: {
+    opacity: 0.7,
+  },
+  premiumUsageText: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+    letterSpacing: 0.3,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+    letterSpacing: 0.5,
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+  },
+  errorText: {
+    color: '#ef4444',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  resultsContainer: {
+    marginTop: 12,
+  },
+  compactRatingContainer: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
     borderRadius: 12,
     padding: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.background.tertiary,
+    marginBottom: 8,
   },
-  suggestionContent: {
-    flex: 1,
+  ratingContainer: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
   },
-  suggestionHeader: {
+  ratingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  ratingTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  starsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 8,
+  },
+  stars: {
+    fontSize: 18,
+  },
+  starCount: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  feedback: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  missingContainer: {
+    marginTop: 8,
+  },
+  missingTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
     marginBottom: 4,
   },
-  suggestionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    flex: 1,
-    marginRight: 8,
-  },
-  impactBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  impactText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  suggestionDescription: {
+  missingItem: {
+    color: '#FFFFFF',
     fontSize: 13,
-    color: theme.colors.text.secondary,
-    lineHeight: 18,
-  },
-  suggestionArrow: {
-    fontSize: 16,
-    color: theme.colors.text.muted,
+    opacity: 0.8,
     marginLeft: 8,
   },
-  viewAllButton: {
-    alignItems: 'center',
-    paddingVertical: 8,
+  enhancedContainer: {
+    marginBottom: 12,
   },
-  viewAllText: {
-    fontSize: 14,
-    color: theme.colors.primary,
+  enhancedTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  enhancedGoal: {
+    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#22c55e',
+  },
+  enhancedGoalText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  selectText: {
+    color: '#22c55e',
+    fontSize: 12,
     fontWeight: '500',
+    textAlign: 'center',
+  },
+  alternativesContainer: {
+    marginBottom: 12,
+  },
+  alternativesTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  alternative: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 6,
+  },
+  alternativeText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  categoryContainer: {
+    marginBottom: 12,
+  },
+  categoryTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  categoryButton: {
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+  },
+  categoryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  habitsContainer: {
+    marginBottom: 12,
+  },
+  habitsTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  habitsButton: {
+    backgroundColor: 'rgba(168, 85, 247, 0.2)',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#a855f7',
+  },
+  habitText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  warningsContainer: {
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  warningsTitle: {
+    color: '#f59e0b',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  warningText: {
+    color: '#f59e0b',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  usageContainer: {
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  usageRemaining: {
+    color: '#FFFFFF',
+    opacity: 0.6,
+    fontSize: 12,
+  },
+  enhanceButtonTextDisabled: {
+    opacity: 0.7,
+  },
+  statusText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    opacity: 0.8,
+    textAlign: 'center',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  premiumStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  premiumStatusIcon: {
+    fontSize: 14,
+    marginRight: 8,
+  },
+  premiumStatusText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+    opacity: 0.8,
+    letterSpacing: 0.2,
+    flex: 1,
+    textAlign: 'center',
+  },
+  // Compact design styles
+  compactRatingTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  compactFeedback: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 6,
+    opacity: 0.9,
+  },
+  compactEnhancedGoal: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: 'rgba(34, 197, 94, 0.6)',
+    shadowColor: '#22c55e',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  enhancedLabel: {
+    color: '#22c55e',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  compactEnhancedText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  compactSelectText: {
+    color: '#22c55e',
+    fontSize: 10,
+    fontWeight: '500',
+    textAlign: 'center',
+    opacity: 0.8,
+  },
+  expandButton: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 6,
+    padding: 8,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  expandButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  premiumExpandButton: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  expandIcon: {
+    fontSize: 14,
+    marginRight: 8,
+  },
+  premiumExpandButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    opacity: 0.9,
+  },
+  expandedContent: {
+    marginTop: 4,
+  },
+  compactUsageRemaining: {
+    color: '#FFFFFF',
+    opacity: 0.6,
+    fontSize: 10,
+    textAlign: 'center',
+    marginTop: 4,
   },
 });

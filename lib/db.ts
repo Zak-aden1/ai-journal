@@ -37,7 +37,9 @@ export async function initializeDatabase(): Promise<void> {
     CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY NOT NULL, createdAt INTEGER NOT NULL, mood TEXT, text TEXT NOT NULL, type TEXT DEFAULT 'free_journal', voiceRecordingUri TEXT, habitId TEXT);
     CREATE TABLE IF NOT EXISTS goal_meta (goalId TEXT PRIMARY KEY NOT NULL, why_text TEXT, why_audio_uri TEXT, obstacles_json TEXT);
     CREATE TABLE IF NOT EXISTS habit_completions (id TEXT PRIMARY KEY NOT NULL, habitId TEXT NOT NULL, completedAt INTEGER NOT NULL, dateKey TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS ai_usage (id TEXT PRIMARY KEY NOT NULL, userId TEXT NOT NULL, date TEXT NOT NULL, usageCount INTEGER DEFAULT 1, createdAt INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_habit_completions_habit_date ON habit_completions(habitId, dateKey);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_usage_user_date ON ai_usage(userId, date);
   `);
   
   // Migration: Make goalId nullable in existing habits table
@@ -835,11 +837,11 @@ export async function listScheduledHabitsForGoal(goalId: string): Promise<HabitW
 export async function listScheduledStandaloneHabits(): Promise<HabitWithSchedule[]> {
   const database = await getDbAsync();
   const rows = await getAllAsync<{
-    id: string; 
-    title: string; 
-    goalId: string | null; 
-    daysOfWeek: string; 
-    timeType: string; 
+    id: string;
+    title: string;
+    goalId: string | null;
+    daysOfWeek: string;
+    timeType: string;
     specificTime: string | null;
     isDaily: number;
     description: string | null;
@@ -848,9 +850,9 @@ export async function listScheduledStandaloneHabits(): Promise<HabitWithSchedule
     difficulty: string | null;
     timeRange: string | null;
   }>(database, `SELECT id, title, goalId, daysOfWeek, timeType, specificTime, isDaily,
-                       description, category, duration, difficulty, timeRange 
+                       description, category, duration, difficulty, timeRange
                 FROM habits WHERE goalId IS NULL`);
-  
+
   return rows.map(row => ({
     id: row.id,
     title: row.title,
@@ -865,5 +867,75 @@ export async function listScheduledStandaloneHabits(): Promise<HabitWithSchedule
     difficulty: (row.difficulty as any) || 'medium',
     timeRange: row.timeRange ? JSON.parse(row.timeRange) : undefined
   }));
+}
+
+// AI Usage tracking functions
+function getCurrentDateKey(): string {
+  return new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+}
+
+export async function checkAIUsageRemaining(userId: string): Promise<number> {
+  const database = await getDbAsync();
+  const dailyLimit = 10;
+  const dateKey = getCurrentDateKey();
+
+  try {
+    const rows = await getAllAsync<{ usageCount: number }>(
+      database,
+      'SELECT usageCount FROM ai_usage WHERE userId = ? AND date = ? LIMIT 1',
+      [userId, dateKey]
+    );
+
+    if (rows.length === 0) {
+      return dailyLimit; // No usage yet today
+    }
+
+    return Math.max(0, dailyLimit - rows[0].usageCount);
+  } catch (error) {
+    console.error('Error checking AI usage:', error);
+    return dailyLimit; // Graceful fallback
+  }
+}
+
+export async function incrementAIUsage(userId: string): Promise<void> {
+  const database = await getDbAsync();
+  const dateKey = getCurrentDateKey();
+  const id = generateId();
+  const createdAt = Date.now();
+
+  try {
+    await runAsync(database, `
+      INSERT INTO ai_usage (id, userId, date, usageCount, createdAt)
+      VALUES (?, ?, ?, 1, ?)
+      ON CONFLICT(userId, date) DO UPDATE SET
+        usageCount = usageCount + 1
+    `, [id, userId, dateKey, createdAt]);
+  } catch (error) {
+    console.error('Error incrementing AI usage:', error);
+    // Don't throw - graceful degradation
+  }
+}
+
+export async function getAIUsageStats(userId: string, days: number = 7): Promise<Array<{ date: string; count: number }>> {
+  const database = await getDbAsync();
+
+  try {
+    const rows = await getAllAsync<{ date: string; usageCount: number }>(
+      database,
+      `SELECT date, usageCount FROM ai_usage
+       WHERE userId = ?
+       ORDER BY date DESC
+       LIMIT ?`,
+      [userId, days]
+    );
+
+    return rows.map(row => ({
+      date: row.date,
+      count: row.usageCount
+    }));
+  } catch (error) {
+    console.error('Error getting AI usage stats:', error);
+    return [];
+  }
 }
 

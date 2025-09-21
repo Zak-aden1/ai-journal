@@ -517,6 +517,35 @@ export default function HabitDetailPage() {
             </Animated.View>
           </View>
 
+          {/* Quick Snapshot */}
+          <View style={styles.section}>
+            <View style={styles.quickCard}>
+              <Text style={styles.quickTitle}>Quick Snapshot</Text>
+              <View style={styles.quickBullets}>
+                <Text style={styles.quickBullet}>• This week: {weeklyScore.completed}/{weeklyScore.planned}</Text>
+                {habitStats && (
+                  <Text style={styles.quickBullet}>• 28‑day success: {habitStats.successRate}%</Text>
+                )}
+                <Text style={styles.quickBullet}>• Streak: {habit.streak}{habitStats ? ` (best ${habitStats.longestStreak})` : ''}</Text>
+              </View>
+              <View style={styles.quickActions}>
+                <TouchableOpacity
+                  style={[styles.quickChip, { borderColor: categoryColor }]}
+                  onPress={handleToggleCompletion}
+                >
+                  <Text style={[styles.quickChipText, { color: categoryColor }]}>
+                    {habit.completedToday ? 'Undo today' : 'Mark today'}
+                  </Text>
+                </TouchableOpacity>
+                {habit.goalId && (
+                  <TouchableOpacity style={styles.quickChip} onPress={handleViewGoal}>
+                    <Text style={styles.quickChipText}>Open goal</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
+
           {/* Statistics */}
           {habitStats && (
             <Animated.View style={[styles.section, animatedStatsStyle]}>
@@ -898,6 +927,45 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.text.secondary,
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  // Quick snapshot styles
+  quickCard: {
+    backgroundColor: theme.colors.background.secondary,
+    borderRadius: theme.radius,
+    padding: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.background.tertiary,
+  },
+  quickTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.xs,
+  },
+  quickBullets: {
+    gap: 4,
+    marginBottom: theme.spacing.sm,
+  },
+  quickBullet: {
+    fontSize: 14,
+    color: theme.colors.text.secondary,
+  },
+  quickActions: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+  },
+  quickChip: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: theme.colors.background.tertiary,
+    borderWidth: 1,
+    borderColor: theme.colors.background.tertiary,
+  },
+  quickChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
   },
   // Day sheet styles
   sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },

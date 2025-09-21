@@ -4,6 +4,8 @@ import { useOnboardingStore } from '@/stores/onboarding';
 import { OnboardingContainer } from '@/components/onboarding/OnboardingContainer';
 import { VoiceRecorder } from '@/components/VoiceRecorder';
 import { PlantAvatar, PetAvatar, RobotAvatar, BaseAvatar } from '@/components/avatars';
+import { GoalEnhancementCard } from '@/components/GoalEnhancementCard';
+import Constants from 'expo-constants';
 
 const getAvatarComponent = (type: string) => {
   switch (type) {
@@ -114,6 +116,29 @@ export default function GoalDetailsStep() {
             <Text style={styles.characterCount}>{goalTitle.length}/100</Text>
           </View>
 
+          {/* AI Enhancement Section - Positioned for immediate visibility */}
+          {goalTitle.trim().length >= 3 && (
+            <GoalEnhancementCard
+              goalInput={goalTitle}
+              userId={Constants.sessionId || 'anonymous'}
+              avatarType={avatarType as any}
+              avatarName={avatarName}
+              goalCategory={goalCategory}
+              onEnhancedGoalSelect={(enhancedGoal) => {
+                setGoalTitle(enhancedGoal);
+                handleSave();
+              }}
+              onCategorySelect={(category) => {
+                // Could update category if that's part of the onboarding flow
+                console.log('AI suggested category:', category);
+              }}
+              onHabitsSelect={(habits) => {
+                // Could store suggested habits for later use
+                console.log('AI suggested habits:', habits);
+              }}
+            />
+          )}
+
           {/* Target Date */}
           <View style={styles.field}>
             <Text style={styles.label}>Target Date</Text>
@@ -159,6 +184,7 @@ export default function GoalDetailsStep() {
             />
           </View>
         </View>
+
 
         {/* Examples Section */}
         <View style={styles.examplesSection}>
