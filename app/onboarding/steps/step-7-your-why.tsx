@@ -15,7 +15,7 @@ const getAvatarComponent = (type: string) => {
 };
 
 export default function YourWhyStep() {
-  const { data, setDeepWhy, setVoiceNote } = useOnboardingStore();
+  const { data, setDeepWhy, setWhyVoiceNote } = useOnboardingStore();
   const [whyText, setWhyText] = useState(data.deepWhy);
 
   const avatarType = data.selectedAvatarType || 'base';
@@ -82,7 +82,7 @@ export default function YourWhyStep() {
               Sometimes speaking your motivation out loud makes it more powerful
             </Text>
             <VoiceRecorder
-              onRecordingComplete={(path) => setVoiceNote(path, 'why')}
+              onRecordingComplete={(path) => setWhyVoiceNote(path)}
               existingRecording={data.whyVoicePath}
             />
           </View>

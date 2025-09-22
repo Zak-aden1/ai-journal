@@ -11,14 +11,65 @@ interface Props {
   onBack: () => void;
   onNext: () => void;
   allowSkip?: boolean;
+  hasUnsavedChanges?: boolean;
+  onSaveBeforeBack?: () => Promise<void> | void;
 }
 
-export function StepNavigation({ step, canProceed, onBack, onNext, allowSkip = false }: Props) {
+export function StepNavigation({
+  step,
+  canProceed,
+  onBack,
+  onNext,
+  allowSkip = false,
+  hasUnsavedChanges = false,
+  onSaveBeforeBack
+}: Props) {
   const router = useRouter();
   const onboardingData = useOnboardingStore((s) => s.data);
   const completeOnboarding = useOnboardingStore((s) => s.completeOnboarding);
   const { addGoal, addHabit, saveWhy, submitEntry, setNextAction } = useAppStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const onBackPress = async () => {
+    // If there are unsaved changes, ask user what to do
+    if (hasUnsavedChanges) {
+      Alert.alert(
+        'Unsaved Changes',
+        'You have unsaved changes. What would you like to do?',
+        [
+          {
+            text: 'Discard Changes',
+            style: 'destructive',
+            onPress: () => onBack()
+          },
+          {
+            text: 'Save & Go Back',
+            onPress: async () => {
+              if (onSaveBeforeBack) {
+                try {
+                  await onSaveBeforeBack();
+                  onBack();
+                } catch (error) {
+                  Alert.alert('Error', 'Failed to save changes. Go back anyway?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Go Back', onPress: () => onBack() }
+                  ]);
+                }
+              } else {
+                onBack();
+              }
+            }
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          }
+        ]
+      );
+    } else {
+      onBack();
+    }
+  };
 
   const onNextPress = async () => {
     Keyboard.dismiss();
@@ -114,7 +165,7 @@ export function StepNavigation({ step, canProceed, onBack, onNext, allowSkip = f
   return (
     <View style={styles.container}>
       {step > 1 ? (
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+        <TouchableOpacity onPress={onBackPress} style={styles.backButton}>
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
       ) : (

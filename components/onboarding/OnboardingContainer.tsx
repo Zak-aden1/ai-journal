@@ -2,6 +2,7 @@ import React from 'react';
 import { View, StyleSheet, SafeAreaView, KeyboardAvoidingView, Platform, ScrollView, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ProgressDots } from './ProgressDots';
+import { OnboardingProgressIndicator } from './OnboardingProgressIndicator';
 import { StepNavigation } from './StepNavigation';
 import { useOnboardingStore } from '@/stores/onboarding';
 
@@ -11,9 +12,23 @@ interface Props {
   gradient: [string, string];
   totalSteps?: number;
   allowSkip?: boolean;
+  showProgressBar?: boolean;
+  compact?: boolean;
+  hasUnsavedChanges?: boolean;
+  onSaveBeforeBack?: () => Promise<void> | void;
 }
 
-export function OnboardingContainer({ children, step, gradient, totalSteps = 7, allowSkip = false }: Props) {
+export function OnboardingContainer({
+  children,
+  step,
+  gradient,
+  totalSteps = 7,
+  allowSkip = false,
+  showProgressBar = true,
+  compact = false,
+  hasUnsavedChanges = false,
+  onSaveBeforeBack
+}: Props) {
   const canProceed = useOnboardingStore((s) => s.canProceedFromStep(step));
   const setStep = useOnboardingStore((s) => s.setStep);
 
@@ -27,11 +42,19 @@ export function OnboardingContainer({ children, step, gradient, totalSteps = 7, 
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
             <View style={styles.content}>
-              <ProgressDots current={step} total={totalSteps} />
+              {showProgressBar ? (
+                <OnboardingProgressIndicator
+                  currentStep={step}
+                  totalSteps={totalSteps}
+                  compact={compact}
+                />
+              ) : (
+                <ProgressDots current={step} total={totalSteps} />
+              )}
               <ScrollView
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={[
-                  styles.scrollContent, 
+                  styles.scrollContent,
                   step === 5 && styles.scrollContentStep5
                 ]}
               >
@@ -43,6 +66,8 @@ export function OnboardingContainer({ children, step, gradient, totalSteps = 7, 
                 onBack={() => setStep(step - 1)}
                 onNext={() => setStep(step + 1)}
                 allowSkip={allowSkip}
+                hasUnsavedChanges={hasUnsavedChanges}
+                onSaveBeforeBack={onSaveBeforeBack}
               />
             </View>
           </TouchableWithoutFeedback>

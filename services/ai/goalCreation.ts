@@ -60,14 +60,14 @@ export class GoalCreationService {
    */
   static async enhanceGoal(request: GoalCreationRequest): Promise<GoalCreationResponse | GoalEnhancementError> {
     try {
-      // Check rate limiting first
-      const remaining = await this.checkUsageRemaining(request.userId);
-      if (remaining <= 0) {
-        return {
-          error: 'Daily AI enhancement limit reached. Try again tomorrow!',
-          code: 'RATE_LIMITED'
-        };
-      }
+      // TEMPORARILY COMMENTED OUT FOR TESTING - Remove rate limiting during development
+      // const remaining = await this.checkUsageRemaining(request.userId);
+      // if (remaining <= 0) {
+      //   return {
+      //     error: 'Daily AI enhancement limit reached. Try again tomorrow!',
+      //     code: 'RATE_LIMITED'
+      //   };
+      // }
 
       // Make API request to backend
       const response = await fetch(`${BACKEND_URL}/api/goal-creation`, {
@@ -91,8 +91,10 @@ export class GoalCreationService {
 
       const result: GoalCreationResponse = await response.json();
 
-      // Increment local usage count
-      await incrementAIUsage(request.userId);
+      // TEMPORARILY COMMENTED OUT FOR TESTING - Skip usage tracking during development
+      // await incrementAIUsage(request.userId);
+
+      console.log('🤖 AI Enhancement Result:', result); // Debug logging
 
       return result;
 
@@ -202,30 +204,35 @@ export function useGoalEnhancement() {
 
     const result = await GoalCreationService.enhanceGoal(request);
 
+    console.log('🔧 useGoalEnhancement hook - received result:', result);
+
     if ('error' in result) {
       // Provide more specific error messages based on error code
       let userFriendlyError = result.error;
 
-      switch (result.code) {
-        case 'RATE_LIMITED':
-          userFriendlyError = 'Daily AI limit reached (10/10 uses). Try again tomorrow!';
-          break;
-        case 'NETWORK_ERROR':
-          userFriendlyError = 'Connection failed. Check your internet and try again.';
-          break;
-        case 'API_ERROR':
-          userFriendlyError = 'AI service temporarily unavailable. Please try again in a moment.';
-          break;
-        default:
-          userFriendlyError = result.error;
-      }
+      // TEMPORARILY COMMENTED OUT FOR TESTING - Don't show rate limit errors during development
+      // switch (result.code) {
+      //   case 'RATE_LIMITED':
+      //     userFriendlyError = 'Daily AI limit reached (10/10 uses). Try again tomorrow!';
+      //     break;
+      //   case 'NETWORK_ERROR':
+      //     userFriendlyError = 'Connection failed. Check your internet and try again.';
+      //     break;
+      //   case 'API_ERROR':
+      //     userFriendlyError = 'AI service temporarily unavailable. Please try again in a moment.';
+      //     break;
+      //   default:
+      //     userFriendlyError = result.error;
+      // }
 
+      console.log('❌ Enhancement hook error:', userFriendlyError);
       setError(userFriendlyError);
       setIsLoading(false);
       return null;
     }
 
-    setUsageRemaining(result.usageRemaining);
+    console.log('✅ Enhancement hook success - setting usage remaining:', result.usageRemaining);
+    setUsageRemaining(result.usageRemaining || 10); // Default to 10 for testing
     setIsLoading(false);
     return result;
   };

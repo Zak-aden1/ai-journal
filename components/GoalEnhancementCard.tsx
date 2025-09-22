@@ -19,7 +19,7 @@ interface GoalEnhancementCardProps {
   avatarName: string;
   existingGoals?: { title: string; category: string }[];
   goalCategory?: string;
-  onEnhancedGoalSelect?: (goal: string) => void;
+  onEnhancedGoalSelect?: (goal: string, rating?: number) => void;
   onHabitsSelect?: (habits: string[]) => void;
   onCategorySelect?: (category: string) => void;
 }
@@ -100,13 +100,24 @@ export function GoalEnhancementCard({
 
   const handleSelectEnhanced = () => {
     if (enhancement && onEnhancedGoalSelect) {
-      onEnhancedGoalSelect(enhancement.enhanced);
+      // Enhanced goals should get a higher rating since they've been improved by AI
+      // If original was <5 stars, the enhanced version should be 4-5 stars
+      const enhancedRating = enhancement.originalRating.stars >= 4 ? 5 : 4;
+      onEnhancedGoalSelect(enhancement.enhanced, enhancedRating);
+
+      // Clear the enhancement state to prevent confusion after selection
+      setEnhancement(null);
+      setHasEnhanced(false);
     }
   };
 
   const handleSelectAlternative = (alternative: string) => {
     if (onEnhancedGoalSelect) {
-      onEnhancedGoalSelect(alternative);
+      onEnhancedGoalSelect(alternative, 5);
+
+      // Clear the enhancement state to prevent confusion after selection
+      setEnhancement(null);
+      setHasEnhanced(false);
     }
   };
 
@@ -212,18 +223,10 @@ export function GoalEnhancementCard({
       {/* Enhancement Results - Compact Design */}
       {enhancement && (
         <View style={styles.resultsContainer}>
-          {/* Compact Goal Rating */}
-          <View style={styles.compactRatingContainer}>
-            <View style={styles.ratingHeader}>
-              <Text style={styles.compactRatingTitle}>Goal Rating</Text>
-              <View style={styles.starsContainer}>
-                <Text style={[styles.stars, { color: GoalCreationService.getStarColor(enhancement.originalRating.stars) }]}>
-                  {GoalCreationService.getStarDisplay(enhancement.originalRating.stars)}
-                </Text>
-                <Text style={styles.starCount}>{enhancement.originalRating.stars}/5</Text>
-              </View>
-            </View>
-            <Text style={styles.compactFeedback} numberOfLines={2}>{enhancement.originalRating.feedback}</Text>
+          {/* Goal Feedback - Cleaner without duplicate rating */}
+          <View style={styles.compactFeedbackContainer}>
+            <Text style={styles.compactFeedbackTitle}>Analysis & Feedback</Text>
+            <Text style={styles.compactFeedback}>{enhancement.originalRating.feedback}</Text>
           </View>
 
           {/* Enhanced Goal - Always visible if different */}
@@ -661,20 +664,33 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  compactFeedbackContainer: {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  compactFeedbackTitle: {
+    color: '#1f2937',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
   compactFeedback: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    lineHeight: 16,
-    marginTop: 6,
-    opacity: 0.9,
+    color: '#374151',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
   },
   compactEnhancedGoal: {
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    backgroundColor: 'rgba(34, 197, 94, 0.9)',
     borderRadius: 12,
-    padding: 12,
+    padding: 16,
     marginBottom: 8,
-    borderWidth: 1.5,
-    borderColor: 'rgba(34, 197, 94, 0.6)',
+    borderWidth: 2,
+    borderColor: '#22c55e',
     shadowColor: '#22c55e',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -682,23 +698,24 @@ const createStyles = (theme: any) => StyleSheet.create({
     elevation: 4,
   },
   enhancedLabel: {
-    color: '#22c55e',
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 4,
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 6,
   },
   compactEnhancedText: {
     color: '#FFFFFF',
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: 4,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 6,
+    fontWeight: '600',
   },
   compactSelectText: {
-    color: '#22c55e',
-    fontSize: 10,
-    fontWeight: '500',
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
     textAlign: 'center',
-    opacity: 0.8,
+    opacity: 0.9,
   },
   expandButton: {
     backgroundColor: 'rgba(255,255,255,0.1)',

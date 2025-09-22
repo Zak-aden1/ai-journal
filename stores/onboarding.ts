@@ -1,10 +1,38 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import * as SecureStore from 'expo-secure-store';
 import { useAppStore } from './app';
 import { HabitSchedule } from '@/lib/db';
 
 type Mode = 'Companion' | 'Coach';
 type Mood = '😊'|'😐'|'😔'|'😤'|'😍';
+
+// Secure storage adapter for onboarding persistence
+const secureStorage = {
+  getItem: async (name: string): Promise<string | null> => {
+    try {
+      return await SecureStore.getItemAsync(name);
+    } catch (error) {
+      console.warn('Failed to get onboarding data from secure storage:', error);
+      return null;
+    }
+  },
+  setItem: async (name: string, value: string): Promise<void> => {
+    try {
+      await SecureStore.setItemAsync(name, value);
+    } catch (error) {
+      console.warn('Failed to save onboarding data to secure storage:', error);
+    }
+  },
+  removeItem: async (name: string): Promise<void> => {
+    try {
+      await SecureStore.deleteItemAsync(name);
+    } catch (error) {
+      console.warn('Failed to remove onboarding data from secure storage:', error);
+    }
+  },
+};
 
 interface OnboardingData {
   // Step 1
@@ -19,11 +47,10 @@ interface OnboardingData {
   // Step 4 - Goal Category
   goalCategory: 'health' | 'learning' | 'career' | 'personal' | null;
   
-  // Step 5 - Goal Details  
+  // Step 5 - Goal Details
   goalTitle: string;
   goalDetails: string;
   targetDate: string;
-  voiceNotePath: string | null;
   
   // Step 6 - Deep Why
   deepWhy: string;
@@ -71,7 +98,7 @@ interface OnboardingStore {
   setAvatarName: (name: string) => void;
   setGoalCategory: (category: 'health' | 'learning' | 'career' | 'personal') => void;
   setGoalDetails: (title: string, details: string, targetDate: string) => void;
-  setVoiceNote: (path: string, type: 'goal' | 'why') => void;
+  setWhyVoiceNote: (path: string) => void;
   setDeepWhy: (why: string) => void;
   addObstacle: (obstacle: string) => void;
   removeObstacle: (obstacle: string) => void;
@@ -85,13 +112,19 @@ interface OnboardingStore {
   setFirstCheckIn: (mood: Mood, entry: string) => void;
   completeOnboarding: () => void;
   resetOnboarding: () => void;
-  
+
+  // Recovery
+  hasRecoveryData: () => Promise<boolean>;
+  clearRecoveryData: () => Promise<void>;
+  getRecoveryProgress: () => { step: number; completedSteps: string[] };
+
   // Validation
   canProceedFromStep: (step: number) => boolean;
 }
 
 export const useOnboardingStore = create<OnboardingStore>()(
-  immer((set, get) => ({
+  persist(
+    immer((set, get) => ({
     // Intro flow
     introStep: 1,
     introComplete: false,
@@ -107,7 +140,6 @@ export const useOnboardingStore = create<OnboardingStore>()(
       goalTitle: '',
       goalDetails: '',
       targetDate: '',
-      voiceNotePath: null,
       deepWhy: '',
       whyVoicePath: null,
       selectedObstacles: [],
@@ -181,9 +213,8 @@ export const useOnboardingStore = create<OnboardingStore>()(
       state.data.targetDate = targetDate;
     }),
     
-    setVoiceNote: (path, type) => set((state) => {
-      if (type === 'goal') state.data.voiceNotePath = path;
-      else state.data.whyVoicePath = path;
+    setWhyVoiceNote: (path) => set((state) => {
+      state.data.whyVoicePath = path;
     }),
     
     setDeepWhy: (why) => set((state) => { state.data.deepWhy = why }),
@@ -235,13 +266,17 @@ export const useOnboardingStore = create<OnboardingStore>()(
       state.data.firstEntry = entry;
     }),
     
-    completeOnboarding: () => set((state) => { state.isComplete = true }),
-    
+    completeOnboarding: () => set((state) => {
+      state.isComplete = true;
+      // Clear recovery data when onboarding is complete
+      get().clearRecoveryData();
+    }),
+
     resetOnboarding: () => set((state) => {
       // Reset intro flow
       state.introStep = 1;
       state.introComplete = false;
-      
+
       // Reset main onboarding
       state.currentStep = 1;
       state.isComplete = false;
@@ -253,7 +288,6 @@ export const useOnboardingStore = create<OnboardingStore>()(
         goalTitle: '',
         goalDetails: '',
         targetDate: '',
-        voiceNotePath: null,
         deepWhy: '',
         whyVoicePath: null,
         selectedObstacles: [],
@@ -268,6 +302,40 @@ export const useOnboardingStore = create<OnboardingStore>()(
         firstEntry: ''
       };
     }),
+
+    // Recovery functions
+    hasRecoveryData: async () => {
+      try {
+        const savedData = await secureStorage.getItem('onboarding-recovery');
+        return savedData !== null;
+      } catch {
+        return false;
+      }
+    },
+
+    clearRecoveryData: async () => {
+      try {
+        await secureStorage.removeItem('onboarding-recovery');
+      } catch (error) {
+        console.warn('Failed to clear recovery data:', error);
+      }
+    },
+
+    getRecoveryProgress: () => {
+      const state = get();
+      const completedSteps: string[] = [];
+
+      if (state.data.avatarName) completedSteps.push('Avatar personalized');
+      if (state.data.goalTitle) completedSteps.push('Goal defined');
+      if (state.data.deepWhy) completedSteps.push('Why explored');
+      if (state.data.selectedHabits.length > 0) completedSteps.push('Habits selected');
+      if (state.data.firstEntry) completedSteps.push('First check-in complete');
+
+      return {
+        step: state.currentStep,
+        completedSteps
+      };
+    },
     
     canProceedFromStep: (step) => {
       const { data } = get();
@@ -283,5 +351,18 @@ export const useOnboardingStore = create<OnboardingStore>()(
         default: return true;
       }
     }
-  }))
-);
+  })),
+  {
+    name: 'onboarding-store',
+    storage: createJSONStorage(() => secureStorage),
+    partialize: (state) => ({
+      // Only persist essential data, not UI state
+      introStep: state.introStep,
+      introComplete: state.introComplete,
+      currentStep: state.currentStep,
+      data: state.data,
+      // Don't persist isComplete to allow recovery
+    }),
+    version: 1,
+  }
+));
