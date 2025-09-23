@@ -6,7 +6,9 @@ import {
   Animated,
   View,
   ViewStyle,
+  Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/hooks/useTheme';
 
@@ -19,20 +21,33 @@ interface FloatingActionButtonProps {
   disabled?: boolean;
   showPulse?: boolean;
   accessibilityLabel?: string;
+  position?: 'fixed' | 'relative';
+  bottom?: number;
+  right?: number;
 }
 
-export function FloatingActionButton({ 
-  onPress, 
-  icon = '+', 
+export function FloatingActionButton({
+  onPress,
+  icon = '+',
   text,
-  style, 
+  style,
   size = 56,
   disabled = false,
   showPulse = false,
-  accessibilityLabel = 'Add new habit'
+  accessibilityLabel = 'Add new habit',
+  position = 'fixed',
+  bottom,
+  right
 }: FloatingActionButtonProps) {
   const { theme } = useTheme();
-  const styles = createStyles(theme, size, !!text);
+  const insets = useSafeAreaInsets();
+  const { height: screenHeight } = Dimensions.get('window');
+
+  // Calculate safe positioning
+  const safeBottom = bottom ?? (100 + insets.bottom);
+  const safeRight = right ?? 24;
+
+  const styles = createStyles(theme, size, !!text, position, safeBottom, safeRight);
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
 
   React.useEffect(() => {
@@ -63,7 +78,8 @@ export function FloatingActionButton({
 
   return (
     <Animated.View style={[
-      { transform: [{ scale: showPulse ? pulseAnim : 1 }] }
+      { transform: [{ scale: showPulse ? pulseAnim : 1 }] },
+      { pointerEvents: 'auto' } // Ensure this element can receive touches
     ]}>
       <TouchableOpacity
         style={[styles.fab, style, disabled && styles.disabled]}
@@ -86,15 +102,22 @@ export function FloatingActionButton({
   );
 }
 
-const createStyles = (theme: any, size: number, hasText: boolean) => StyleSheet.create({
+const createStyles = (
+  theme: any,
+  size: number,
+  hasText: boolean,
+  position: string,
+  bottom: number,
+  right: number
+) => StyleSheet.create({
   fab: {
     position: 'absolute',
-    bottom: 100,
-    right: 24,
+    bottom: bottom,
+    right: right,
     minWidth: hasText ? 120 : size,
     height: size,
     borderRadius: hasText ? size / 2 : size / 2,
-    backgroundColor: theme.colors.interactive.primary,
+    backgroundColor: theme.colors.interactive?.primary || theme.colors.primary || '#007AFF',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: theme.colors.text.primary,
@@ -102,8 +125,10 @@ const createStyles = (theme: any, size: number, hasText: boolean) => StyleSheet.
     shadowOpacity: 0.4,
     shadowRadius: 12,
     elevation: 12,
-    zIndex: 1000,
+    zIndex: position === 'fixed' ? 10000 : 1000,
     paddingHorizontal: hasText ? 16 : 0,
+    // Debug styling to ensure visibility
+    opacity: 1,
   },
   disabled: {
     opacity: 0.6,

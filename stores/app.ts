@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import { upsertGoal, upsertHabit, insertEntry, listGoals, listHabitsByGoal, listEntries, saveGoalMeta, getGoalMeta, initializeDatabase, listHabitsWithIdsByGoal, listStandaloneHabits, listAllHabitsWithGoals, updateHabitGoalAssignment, deleteGoal as dbDeleteGoal, deleteHabit as dbDeleteHabit, markHabitComplete, unmarkHabitComplete, isHabitCompletedOnDate, calculateHabitStreak, HabitSchedule, HabitWithSchedule, filterHabitsForToday, sortHabitsByTime, migrateHabitsScheduling, listScheduledHabitsForGoal, listScheduledStandaloneHabits, EnhancedHabitData, deleteEntry as dbDeleteEntry } from '@/lib/db';
+import { upsertGoal, upsertHabit, insertEntry, listGoals, listHabitsByGoal, listEntries, saveGoalMeta, getGoalMeta, initializeDatabase, listHabitsWithIdsByGoal, listStandaloneHabits, listAllHabitsWithGoals, updateHabitGoalAssignment, deleteGoal as dbDeleteGoal, deleteHabit as dbDeleteHabit, markHabitComplete, unmarkHabitComplete, isHabitCompletedOnDate, calculateHabitStreak, HabitSchedule, HabitWithSchedule, filterHabitsForToday, sortHabitsByTime, migrateHabitsScheduling, listScheduledHabitsForGoal, listScheduledStandaloneHabits, EnhancedHabitData, deleteEntry as dbDeleteEntry, cleanupCorruptedHabits } from '@/lib/db';
 import { nextActionFrom } from '@/services/ai/suggestions';
 import { AvatarType, AvatarMemory } from '@/components/avatars/types';
 import { AvatarStory, StoryUnlockProgress, StoryUnlockNotification } from '@/types/avatarStories';
@@ -216,6 +216,15 @@ export const useAppStore = create<AppState>()(
         console.log('[hydrate] Initializing habit scheduling...');
         await migrateHabitsScheduling();
         console.log('[hydrate] Habit scheduling initialized successfully');
+
+        console.log('[hydrate] Cleaning up corrupted habit data...');
+        const cleanupResult = await cleanupCorruptedHabits();
+        if (cleanupResult.cleaned > 0) {
+          console.log(`[hydrate] Cleaned up ${cleanupResult.cleaned} corrupted habits`);
+        }
+        if (cleanupResult.errors.length > 0) {
+          console.warn('[hydrate] Cleanup errors:', cleanupResult.errors);
+        }
 
         console.log('[hydrate] Loading goals...');
         const goals = await listGoals();

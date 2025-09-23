@@ -1,7 +1,9 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FeaturedGoalCarousel } from '@/components/FeaturedGoalCarousel';
+import { EnhancedSmartInsights } from '@/components/home/EnhancedSmartInsights';
 import { useTheme } from '@/hooks/useTheme';
+import type { SmartInsights, EnhancedInsight } from '@/services/ai/smartInsights';
 
 interface Goal {
   id: string;
@@ -23,17 +25,23 @@ interface PrimaryGoalSectionProps {
     bestTime?: string;
     streakRisk?: 'low' | 'medium' | 'high';
     tip?: string;
+    enhanced?: SmartInsights;
   } | null;
 }
 
-export function PrimaryGoalSection({ 
-  goals, 
-  primaryGoalId, 
-  onGoalPress, 
-  insights 
+export function PrimaryGoalSection({
+  goals,
+  primaryGoalId,
+  onGoalPress,
+  insights
 }: PrimaryGoalSectionProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme);
+
+  const handleInsightAction = (insight: EnhancedInsight) => {
+    console.log('Insight action pressed:', insight);
+    // Could trigger habit completion, reminders, etc.
+  };
 
   if (goals.length === 0) {
     return null;
@@ -48,21 +56,27 @@ export function PrimaryGoalSection({
         onGoalPress={onGoalPress}
       />
 
-      {/* AI Insights Card */}
-      {insights && (
+      {/* Enhanced AI Insights */}
+      {insights?.enhanced ? (
+        <EnhancedSmartInsights
+          insights={insights.enhanced}
+          onActionPress={handleInsightAction}
+        />
+      ) : insights && (
+        /* Fallback to legacy insights */
         <View style={styles.insightsCard}>
           <View style={styles.insightsHeader}>
             <Text style={styles.insightsIcon}>🧠</Text>
             <Text style={styles.insightsTitle}>Smart Insights</Text>
           </View>
-          
+
           {insights.bestTime && (
             <View style={styles.insightRow}>
               <Text style={styles.insightLabel}>🕒 Optimal time:</Text>
               <Text style={styles.insightValue}>{insights.bestTime}</Text>
             </View>
           )}
-          
+
           {insights.streakRisk && (
             <View style={styles.insightRow}>
               <Text style={styles.insightLabel}>
@@ -76,7 +90,7 @@ export function PrimaryGoalSection({
               </Text>
             </View>
           )}
-          
+
           {insights.tip && (
             <View style={styles.tipContainer}>
               <Text style={styles.tipText}>💡 {insights.tip}</Text>

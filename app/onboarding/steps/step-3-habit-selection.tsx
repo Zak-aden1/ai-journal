@@ -545,7 +545,7 @@ export default function HabitSelectionStep() {
                 marginTop: 4,
                 textAlign: 'center'
               }}>
-                For "{data.goalTitle}"
+                For &quot;{data.goalTitle}&quot;
               </Text>
             </View>
           )}

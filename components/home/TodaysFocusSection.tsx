@@ -1,8 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, LayoutAnimation, Platform, UIManager } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/hooks/useTheme';
 import { ParticleEffect } from '@/components/ParticleEffect';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 interface Habit {
   id: string;
@@ -22,11 +27,11 @@ interface TodaysFocusSectionProps {
   onHabitLongPress?: (habit: Habit) => void;
 }
 
-export function TodaysFocusSection({ 
-  habits, 
-  completedCount, 
+export const TodaysFocusSection = React.memo(function TodaysFocusSection({
+  habits,
+  completedCount,
   onHabitToggle,
-  onHabitLongPress 
+  onHabitLongPress
 }: TodaysFocusSectionProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme);
@@ -37,6 +42,7 @@ export function TodaysFocusSection({
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hapticIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressRef = useRef(new Animated.Value(0)).current;
+  const cardAnimations = useRef<Map<string, Animated.Value>>(new Map()).current;
 
   // Sort habits by time, priority, and completion status
   const sortedHabits = React.useMemo(() => {
@@ -84,6 +90,24 @@ export function TodaysFocusSection({
   const progressPercent = totalHabits > 0 ? Math.round((completedCount / totalHabits) * 100) : 0;
   const progressAnimValue = useRef(new Animated.Value(0)).current;
 
+  // Initialize card animations for all habits
+  useEffect(() => {
+    habits.forEach((habit, index) => {
+      if (!cardAnimations.has(habit.id)) {
+        const animValue = new Animated.Value(0);
+        cardAnimations.set(habit.id, animValue);
+
+        // Staggered entrance animation
+        Animated.timing(animValue, {
+          toValue: 1,
+          duration: 300,
+          delay: index * 100,
+          useNativeDriver: true,
+        }).start();
+      }
+    });
+  }, [habits, cardAnimations]);
+
   // Animate progress ring when completedCount changes
   useEffect(() => {
     Animated.spring(progressAnimValue, {
@@ -93,6 +117,21 @@ export function TodaysFocusSection({
       friction: 8,
     }).start();
   }, [progressPercent, progressAnimValue]);
+
+  // Layout animation for show/hide more habits
+  const toggleShowAllHabits = () => {
+    LayoutAnimation.configureNext({
+      duration: 300,
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+      update: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+      },
+    });
+    setShowAllHabits(!showAllHabits);
+  };
 
   const handleHoldStart = (habitId: string) => {
     if (habits.find(h => h.id === habitId)?.completed) return;
@@ -222,20 +261,42 @@ export function TodaysFocusSection({
 
       {/* Habits List */}
       <View style={styles.habitsList}>
-        {visibleHabits.map((habit) => (
-          <TouchableOpacity
-            key={habit.id}
-            style={[
-              styles.habitCard,
-              habit.completed && styles.habitCardCompleted,
-              holdingHabit === habit.id && styles.habitCardHolding,
-            ]}
-            onPressIn={() => handleHoldStart(habit.id)}
-            onPressOut={handleHoldEnd}
-            onLongPress={() => onHabitLongPress?.(habit)}
-            activeOpacity={0.7}
-            disabled={habit.completed}
-          >
+        {visibleHabits.map((habit) => {
+          const cardAnimation = cardAnimations.get(habit.id) || new Animated.Value(1);
+
+          return (
+            <Animated.View
+              key={habit.id}
+              style={{
+                opacity: cardAnimation,
+                transform: [
+                  {
+                    translateY: cardAnimation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [50, 0],
+                    }),
+                  },
+                  {
+                    scale: cardAnimation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.9, 1],
+                    }),
+                  },
+                ],
+              }}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.habitCard,
+                  habit.completed && styles.habitCardCompleted,
+                  holdingHabit === habit.id && styles.habitCardHolding,
+                ]}
+                onPressIn={() => handleHoldStart(habit.id)}
+                onPressOut={handleHoldEnd}
+                onLongPress={() => onHabitLongPress?.(habit)}
+                activeOpacity={0.7}
+                disabled={habit.completed}
+              >
             {/* Progress Overlay for Hold */}
             {holdingHabit === habit.id && (
               <Animated.View
@@ -299,14 +360,16 @@ export function TodaysFocusSection({
                 </Text>
               </View>
             </View>
-          </TouchableOpacity>
-        ))}
+              </TouchableOpacity>
+            </Animated.View>
+          );
+        })}
         
         {/* Show More/Less Toggle */}
         {remainingHabitsCount > 0 && (
           <TouchableOpacity
             style={styles.toggleButton}
-            onPress={() => setShowAllHabits(!showAllHabits)}
+            onPress={toggleShowAllHabits}
             activeOpacity={0.7}
           >
             <Text style={styles.toggleText}>
@@ -334,7 +397,7 @@ export function TodaysFocusSection({
       )}
     </View>
   );
-}
+});
 
 const createStyles = (theme: any) => StyleSheet.create({
   container: {

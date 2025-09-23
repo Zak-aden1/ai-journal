@@ -303,6 +303,48 @@ export const useOnboardingStore = create<OnboardingStore>()(
       };
     }),
 
+    // Development helper - force reset onboarding (clears persistent storage too)
+    forceResetOnboarding: async () => {
+      try {
+        // Clear persistent storage
+        await secureStorage.removeItem('onboarding-store');
+        await secureStorage.removeItem('onboarding-recovery');
+
+        // Reset state
+        set((state) => {
+          state.introStep = 1;
+          state.introComplete = false;
+          state.currentStep = 1;
+          state.isComplete = false;
+          state.data = {
+            mode: null,
+            selectedAvatarType: null,
+            avatarName: '',
+            goalCategory: null,
+            goalTitle: '',
+            goalDetails: '',
+            targetDate: '',
+            deepWhy: '',
+            whyVoicePath: null,
+            selectedObstacles: [],
+            customObstacles: [],
+            selectedHabits: [],
+            customHabits: [],
+            habitSchedules: {},
+            tutorialCompleted: false,
+            firstHabitCompleted: false,
+            privacy: { localOnly: true, voiceRecording: false },
+            firstMood: null,
+            firstEntry: ''
+          };
+        });
+
+        console.log('Onboarding completely reset - app should redirect to onboarding flow');
+      } catch (error) {
+        console.error('Failed to force reset onboarding:', error);
+      }
+    },
+
     // Recovery functions
     hasRecoveryData: async () => {
       try {

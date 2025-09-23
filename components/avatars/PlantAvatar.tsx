@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -11,6 +11,15 @@ import Animated, {
   Extrapolate,
 } from 'react-native-reanimated';
 import { AvatarProps, getVitalityLevel } from './types';
+
+// Import plant avatar images
+const plantImages = {
+  critical: require('@/assets/images/avatars/plants/plant-0.png'),
+  low: require('@/assets/images/avatars/plants/plant-25.png'),
+  medium: require('@/assets/images/avatars/plants/plant-50.png'),
+  high: require('@/assets/images/avatars/plants/plant-75.png'),
+  perfect: require('@/assets/images/avatars/plants/plant-100.png'),
+};
 
 export function PlantAvatar({ 
   vitality, 
@@ -89,9 +98,8 @@ export function PlantAvatar({
     switch (level) {
       case 'critical':
         return {
-          plant: '🥀', // Wilted flower
-          pot: '🪴',
-          backgroundColor: '#450a0a',
+          plantImage: plantImages.critical,
+          backgroundColor: 'transparent', // Let image handle its own background
           borderColor: '#dc2626',
           description: 'Withering - needs water!',
           particles: ['💧', '😢'],
@@ -100,9 +108,8 @@ export function PlantAvatar({
         };
       case 'low':
         return {
-          plant: '🌱', // Small sprout
-          pot: '🪴',
-          backgroundColor: '#451a03',
+          plantImage: plantImages.low,
+          backgroundColor: 'transparent',
           borderColor: '#ea580c',
           description: 'Just sprouting',
           particles: ['💧', '🌿'],
@@ -111,9 +118,8 @@ export function PlantAvatar({
         };
       case 'medium':
         return {
-          plant: '🌿', // Growing plant
-          pot: '🪴',
-          backgroundColor: '#14532d',
+          plantImage: plantImages.medium,
+          backgroundColor: 'transparent',
           borderColor: '#16a34a',
           description: 'Growing steadily',
           particles: ['🌿', '💚'],
@@ -122,9 +128,8 @@ export function PlantAvatar({
         };
       case 'high':
         return {
-          plant: '🌻', // Sunflower
-          pot: '🪴',
-          backgroundColor: '#365314',
+          plantImage: plantImages.high,
+          backgroundColor: 'transparent',
           borderColor: '#65a30d',
           description: 'Blooming beautifully!',
           particles: ['🌻', '☀️', '🌿'],
@@ -133,9 +138,8 @@ export function PlantAvatar({
         };
       case 'perfect':
         return {
-          plant: '🌺', // Hibiscus in full bloom
-          pot: '🪴',
-          backgroundColor: '#4c1d95',
+          plantImage: plantImages.perfect,
+          backgroundColor: 'transparent',
           borderColor: '#7c3aed',
           description: 'Magnificent bloom!',
           particles: ['🌺', '✨', '🌿', '🌸'],
@@ -151,7 +155,6 @@ export function PlantAvatar({
   // Merge relationship enhancements with base config
   const enhancedConfig = {
     ...config,
-    pot: relationshipEnhancements.plantVariations.pot || config.pot,
     accessories: relationshipEnhancements.accessories,
     backdrop: relationshipEnhancements.plantVariations.backdrop,
     extras: relationshipEnhancements.plantVariations.extras,
@@ -491,13 +494,14 @@ export function PlantAvatar({
         /* Compact mode - minimal particles for celebration only */
         <View style={styles.compactContainer}>
           <Animated.View style={[styles.avatar, containerStyle]}>
-            {/* Plant */}
+            {/* Plant Image */}
             <Animated.View style={[styles.plantContainer, plantStyle]}>
-              <Text style={styles.plantEmoji}>{config.plant}</Text>
+              <Image
+                source={config.plantImage}
+                style={styles.plantImage}
+                resizeMode="contain"
+              />
             </Animated.View>
-            
-            {/* Pot */}
-            <Text style={styles.potEmoji}>{config.pot}</Text>
           </Animated.View>
           
           {/* Celebration particles in compact mode */}
@@ -552,9 +556,13 @@ export function PlantAvatar({
                 </Text>
               )}
               
-              {/* Plant */}
+              {/* Plant Image */}
               <Animated.View style={[styles.plantContainer, plantStyle]}>
-                <Text style={styles.plantEmoji}>{config.plant}</Text>
+                <Image
+                  source={config.plantImage}
+                  style={styles.plantImage}
+                  resizeMode="contain"
+                />
                 {/* Extras like flowers */}
                 {enhancedConfig.extras && (
                   <Text style={[styles.plantExtras, { fontSize: size * 0.15 }]}>
@@ -562,9 +570,6 @@ export function PlantAvatar({
                   </Text>
                 )}
               </Animated.View>
-              
-              {/* Pot */}
-              <Text style={styles.potEmoji}>{enhancedConfig.pot}</Text>
               
               {/* Relationship Accessories */}
               {enhancedConfig.accessories.map((accessory, index) => (
@@ -650,7 +655,8 @@ const createStyles = (size: number) => StyleSheet.create({
     width: size,
     height: size,
     borderRadius: size / 2,
-    borderWidth: 3,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.2)', // Subtle border
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 4 },
@@ -658,18 +664,17 @@ const createStyles = (size: number) => StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
     position: 'relative',
+    overflow: 'hidden', // Ensure circular clipping
+    backgroundColor: 'transparent',
   },
   plantContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
   },
-  plantEmoji: {
-    fontSize: size * 0.25,
-    marginBottom: 4,
-  },
-  potEmoji: {
-    fontSize: size * 0.2,
+  plantImage: {
+    width: size,
+    height: size,
+    borderRadius: size / 2, // Make the image itself circular
   },
   sparkleContainer: {
     position: 'absolute',

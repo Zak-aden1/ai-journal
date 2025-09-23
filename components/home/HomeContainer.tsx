@@ -6,22 +6,32 @@ import { useTheme } from '@/hooks/useTheme';
 interface HomeContainerProps {
   children: React.ReactNode;
   showScrollIndicator?: boolean;
+  overlayElements?: React.ReactNode;
 }
 
-export function HomeContainer({ children, showScrollIndicator = false }: HomeContainerProps) {
+export function HomeContainer({
+  children,
+  showScrollIndicator = false,
+  overlayElements
+}: HomeContainerProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={showScrollIndicator}
-        scrollEventThrottle={16}
-      >
-        {children}
-      </ScrollView>
+      <View style={styles.wrapper}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={showScrollIndicator}
+          scrollEventThrottle={16}
+        >
+          {children}
+        </ScrollView>
+
+        {/* Overlay elements that stay fixed during scroll */}
+        {overlayElements && overlayElements}
+      </View>
     </SafeAreaView>
   );
 }
@@ -30,6 +40,10 @@ const createStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background.primary,
+  },
+  wrapper: {
+    flex: 1,
+    position: 'relative',
   },
   scrollView: {
     flex: 1,

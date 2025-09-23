@@ -11,8 +11,11 @@ import {
 } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppStore } from '@/stores/app';
+import { useOnboardingStore } from '@/stores/onboarding';
 import { track } from '@/utils/analytics';
 import { GoalCleanup } from '@/components/GoalCleanup';
+import { router } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 
 interface SettingItem {
   id: string;
@@ -26,6 +29,7 @@ interface SettingItem {
 
 export default function SettingsScreen() {
   const { privacy, togglePrivacy, mode, setMode } = useAppStore();
+  const { forceResetOnboarding } = useOnboardingStore();
   const { theme, themeMode, toggleTheme } = useTheme();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -68,6 +72,33 @@ export default function SettingsScreen() {
       'Contact Support',
       'Send us feedback or report issues at support@aijournal.app',
       [{ text: 'OK' }]
+    );
+  };
+
+  const handleResetOnboarding = () => {
+    Alert.alert(
+      'Reset Onboarding',
+      'This will clear your onboarding progress and take you back to the beginning. Your goals and habits will remain intact.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset & Restart',
+          style: 'default',
+          onPress: async () => {
+            try {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              await forceResetOnboarding();
+              // Small delay to ensure state is updated
+              setTimeout(() => {
+                router.replace('/onboarding');
+              }, 100);
+            } catch (error) {
+              console.error('Failed to reset onboarding:', error);
+              Alert.alert('Error', 'Failed to reset onboarding. Please try again.');
+            }
+          }
+        }
+      ]
     );
   };
 
@@ -227,11 +258,27 @@ export default function SettingsScreen() {
         {renderSection('App Preferences', appSettings)}
         {renderSection('Data Management', dataSettings)}
         
-        {/* Goal cleanup section - only visible for development */}
+        {/* Development tools section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Development Tools</Text>
           <View style={styles.sectionContent}>
             <GoalCleanup />
+
+            {/* Reset Onboarding Button */}
+            <TouchableOpacity
+              style={[styles.settingItem, { borderBottomWidth: 0 }]}
+              onPress={handleResetOnboarding}
+            >
+              <View style={styles.settingContent}>
+                <Text style={[styles.settingTitle, { color: theme.colors.interactive.primary }]}>
+                  Reset Onboarding
+                </Text>
+                <Text style={styles.settingSubtitle}>
+                  Clear onboarding progress and restart the intro flow
+                </Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </TouchableOpacity>
           </View>
         </View>
         

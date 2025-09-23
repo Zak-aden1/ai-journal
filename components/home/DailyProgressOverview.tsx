@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated, Dimensions } from 'react-native';
+import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { useTheme } from '@/hooks/useTheme';
 
 interface DailyProgressOverviewProps {
@@ -10,7 +11,7 @@ interface DailyProgressOverviewProps {
   motivationalMessage?: string;
 }
 
-export function DailyProgressOverview({
+export const DailyProgressOverview = React.memo(function DailyProgressOverview({
   completedHabits,
   totalHabits,
   currentStreak,
@@ -19,26 +20,57 @@ export function DailyProgressOverview({
 }: DailyProgressOverviewProps) {
   const { theme } = useTheme();
   const styles = createStyles(theme);
-  
+
   const progressPercent = totalHabits > 0 ? Math.round((completedHabits / totalHabits) * 100) : 0;
   const progressAnimation = useRef(new Animated.Value(0)).current;
   const scaleAnimation = useRef(new Animated.Value(0.9)).current;
+  const rotateAnimation = useRef(new Animated.Value(0)).current;
+  const pulseAnimation = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.spring(progressAnimation, {
-        toValue: progressPercent,
-        useNativeDriver: false,
-        tension: 50,
-        friction: 8,
-      }),
+    // Create a more sophisticated animation sequence
+    Animated.sequence([
+      // Initial scale up
       Animated.spring(scaleAnimation, {
         toValue: 1,
         useNativeDriver: true,
         tension: 50,
         friction: 8,
-      })
+      }),
+      // Progress fill with rotation
+      Animated.parallel([
+        Animated.timing(progressAnimation, {
+          toValue: progressPercent,
+          duration: 1500,
+          useNativeDriver: false,
+        }),
+        Animated.timing(rotateAnimation, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+      ]),
     ]).start();
+
+    // Pulse animation for high progress
+    if (progressPercent >= 80) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnimation, {
+            toValue: 1.1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnimation, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnimation.setValue(1);
+    }
   }, [progressPercent]);
 
   const getProgressColor = () => {
@@ -54,35 +86,67 @@ export function DailyProgressOverview({
     return '🌅';
   };
 
+  const renderProgressRing = () => {
+    const size = 80;
+    const strokeWidth = 6;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = 2 * Math.PI * radius;
+
+    return (
+      <View style={styles.progressRing}>
+        <Svg width={size} height={size} style={styles.progressSvg}>
+          <Defs>
+            <LinearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor={getProgressColor()} stopOpacity="1" />
+              <Stop offset="100%" stopColor={getProgressColor()} stopOpacity="0.7" />
+            </LinearGradient>
+          </Defs>
+
+          {/* Background circle */}
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke={theme.colors.background.tertiary}
+            strokeWidth={strokeWidth}
+            fill="none"
+          />
+
+          {/* Progress circle */}
+          <Animated.View>
+            <Circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              stroke="url(#progressGradient)"
+              strokeWidth={strokeWidth}
+              fill="none"
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={progressAnimation.interpolate({
+                inputRange: [0, 100],
+                outputRange: [circumference, 0],
+              })}
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            />
+          </Animated.View>
+        </Svg>
+
+        <Animated.View style={[styles.progressInner, { transform: [{ scale: pulseAnimation }] }]}>
+          <Text style={[styles.progressPercent, { color: getProgressColor() }]}>
+            {progressPercent}%
+          </Text>
+          <Text style={styles.progressLabel}>complete</Text>
+        </Animated.View>
+      </View>
+    );
+  };
+
   return (
     <Animated.View style={[styles.container, { transform: [{ scale: scaleAnimation }] }]}>
       {/* Progress Ring */}
       <View style={styles.progressSection}>
-        <View style={styles.progressRing}>
-          <View style={[styles.progressCircle, { borderColor: theme.colors.background.tertiary }]}>
-            <Animated.View
-              style={[
-                styles.progressFill,
-                {
-                  borderTopColor: getProgressColor(),
-                  borderRightColor: getProgressColor(),
-                  transform: [{
-                    rotate: progressAnimation.interpolate({
-                      inputRange: [0, 100],
-                      outputRange: ['0deg', '360deg'],
-                    })
-                  }]
-                }
-              ]}
-            />
-            <View style={styles.progressInner}>
-              <Text style={[styles.progressPercent, { color: getProgressColor() }]}>
-                {progressPercent}%
-              </Text>
-              <Text style={styles.progressLabel}>complete</Text>
-            </View>
-          </View>
-        </View>
+        {renderProgressRing()}
 
         {/* Stats */}
         <View style={styles.statsContainer}>
@@ -116,7 +180,7 @@ export function DailyProgressOverview({
       </View>
     </Animated.View>
   );
-}
+});
 
 const createStyles = (theme: any) => StyleSheet.create({
   container: {
@@ -137,32 +201,30 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   progressRing: {
     marginRight: theme.spacing.lg,
-  },
-  progressCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 4,
+    position: 'relative',
+    width: 80,
+    height: 80,
     justifyContent: 'center',
     alignItems: 'center',
-    position: 'relative',
   },
-  progressFill: {
+  progressSvg: {
     position: 'absolute',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 4,
-    borderBottomColor: 'transparent',
-    borderLeftColor: 'transparent',
+    top: 0,
+    left: 0,
   },
   progressInner: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    position: 'absolute',
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: theme.colors.background.secondary,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: theme.colors.text.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   progressPercent: {
     fontSize: 14,

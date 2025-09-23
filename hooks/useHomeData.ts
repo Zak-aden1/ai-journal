@@ -3,6 +3,7 @@ import { useAppStore } from '@/stores/app';
 import { isHabitCompletedOnDate } from '@/lib/db';
 import { habitAnalytics } from '@/services/analytics/HabitAnalyticsService';
 import { streakPredictor } from '@/services/analytics/StreakPredictionEngine';
+import { smartInsightsEngine, type SmartInsights, type EnhancedInsight } from '@/services/ai/smartInsights';
 
 interface HomeHabit {
   id: string;
@@ -31,6 +32,7 @@ interface HomeInsights {
   bestTime?: string;
   streakRisk?: 'low' | 'medium' | 'high';
   tip?: string;
+  enhanced?: SmartInsights;
 }
 
 export const useHomeData = () => {
@@ -176,12 +178,13 @@ export const useHomeData = () => {
 
   const loadInsights = useCallback(async (targetHabit: HomeHabit) => {
     try {
+      // Legacy insights for backward compatibility
       const [pattern, forecast] = await Promise.all([
         habitAnalytics.analyzeHabitTiming(targetHabit.id),
         streakPredictor.generateStreakForecast(targetHabit.id),
       ]);
 
-      const bestTime = pattern?.optimalHours?.length > 0 
+      const bestTime = pattern?.optimalHours?.length > 0
         ? `${pattern.optimalHours[0]}:00-${pattern.optimalHours[pattern.optimalHours.length - 1]}:00`
         : undefined;
 
@@ -192,16 +195,32 @@ export const useHomeData = () => {
         tip = `Focus extra attention on ${pattern.difficultDays[0]}s`;
       }
 
+      // Enhanced insights
+      const userContext = {
+        currentHour: new Date().getHours(),
+        dayOfWeek: new Date().toLocaleDateString('en-US', { weekday: 'long' }),
+        completionRate: primaryGoalHabits.length > 0 ? completedTodayCount / primaryGoalHabits.length : 0,
+        totalHabits: primaryGoalHabits.length,
+        completedHabits: completedTodayCount,
+      };
+
+      const enhanced = await smartInsightsEngine.generateInsights(
+        targetHabit,
+        userContext,
+        primaryGoalHabits
+      );
+
       setInsights({
         bestTime,
         streakRisk: forecast?.riskProfile,
         tip: tip || undefined,
+        enhanced,
       });
     } catch (error) {
       console.warn('Failed to load insights:', error);
       setInsights(null);
     }
-  }, []);
+  }, [primaryGoalHabits, completedTodayCount]);
 
   const loadData = useCallback(async () => {
     if (!isHydrated) return;
@@ -247,24 +266,29 @@ export const useHomeData = () => {
 
   const contextualGreeting = useMemo(() => {
     const hour = new Date().getHours();
-    const progressPercent = primaryGoalHabits.length > 0 
+    const progressPercent = primaryGoalHabits.length > 0
       ? Math.round((completedTodayCount / primaryGoalHabits.length) * 100)
       : 0;
 
     if (hour < 12) {
-      return progressPercent > 0 
+      return progressPercent > 0
         ? `Great start! ${progressPercent}% complete`
         : "Ready to start your day strong?";
     } else if (hour < 17) {
-      return progressPercent > 50 
+      return progressPercent > 50
         ? `Awesome progress! ${progressPercent}% done`
         : "Keep the momentum going!";
     } else {
-      return progressPercent === 100 
+      return progressPercent === 100
         ? "Perfect day! All habits complete 🎉"
         : "How did your day go?";
     }
   }, [completedTodayCount, primaryGoalHabits.length]);
+
+  // Memoized refetch function
+  const memoizedRefetch = useCallback(() => {
+    return loadData();
+  }, [loadData]);
 
   return {
     // State
@@ -279,6 +303,6 @@ export const useHomeData = () => {
     contextualGreeting,
     
     // Actions
-    refetch: loadData,
+    refetch: memoizedRefetch,
   };
 };

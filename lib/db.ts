@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import type { Mood, Entry, EntryType } from '@/stores/app';
+import { isCorruptedOrTestHabit, sanitizeHabitName, generateMeaningfulHabitName } from '@/utils/habitValidation';
 
 type GoalRow = { id: string; title: string };
 
@@ -937,5 +938,98 @@ export async function getAIUsageStats(userId: string, days: number = 7): Promise
     console.error('Error getting AI usage stats:', error);
     return [];
   }
+}
+
+/**
+ * Clean up corrupted or test habit data
+ */
+export async function cleanupCorruptedHabits(): Promise<{ cleaned: number; errors: string[] }> {
+  const database = await getDbAsync();
+  const errors: string[] = [];
+  let cleaned = 0;
+
+  try {
+    // Get all habits
+    const habits = await getAllAsync<{ id: string; title: string; category: string | null }>(
+      database,
+      'SELECT id, title, category FROM habits'
+    );
+
+    console.log(`[DB] Found ${habits.length} habits to check for corruption`);
+
+    for (const habit of habits) {
+      try {
+        if (isCorruptedOrTestHabit(habit.title)) {
+          console.log(`[DB] Cleaning corrupted habit: "${habit.title}"`);
+
+          // Generate a meaningful replacement name
+          const newName = generateMeaningfulHabitName(habit.category || undefined);
+
+          // Update the habit with the new name
+          await runAsync(
+            database,
+            'UPDATE habits SET title = ? WHERE id = ?',
+            [newName, habit.id]
+          );
+
+          cleaned++;
+          console.log(`[DB] Renamed "${habit.title}" to "${newName}"`);
+        } else {
+          // Just sanitize the name if it's not corrupted
+          const sanitizedName = sanitizeHabitName(habit.title);
+          if (sanitizedName !== habit.title) {
+            await runAsync(
+              database,
+              'UPDATE habits SET title = ? WHERE id = ?',
+              [sanitizedName, habit.id]
+            );
+            console.log(`[DB] Sanitized "${habit.title}" to "${sanitizedName}"`);
+          }
+        }
+      } catch (error) {
+        const errorMsg = `Failed to clean habit ${habit.id}: ${error}`;
+        console.error(`[DB] ${errorMsg}`);
+        errors.push(errorMsg);
+      }
+    }
+
+    console.log(`[DB] Cleanup complete. Cleaned ${cleaned} habits with ${errors.length} errors`);
+    return { cleaned, errors };
+
+  } catch (error) {
+    const errorMsg = `Failed to cleanup corrupted habits: ${error}`;
+    console.error(`[DB] ${errorMsg}`);
+    return { cleaned, errors: [errorMsg] };
+  }
+}
+
+/**
+ * Enhanced habit creation with validation
+ */
+export async function createValidatedHabit(
+  goalId: string | null,
+  title: string,
+  schedule?: HabitSchedule,
+  enhancedData?: EnhancedHabitData
+): Promise<{ id: string; sanitizedTitle: string; warnings: string[] }> {
+  const warnings: string[] = [];
+
+  // Validate and sanitize the title
+  let sanitizedTitle = title;
+
+  if (isCorruptedOrTestHabit(title)) {
+    sanitizedTitle = generateMeaningfulHabitName(enhancedData?.category);
+    warnings.push(`Original title "${title}" was replaced with "${sanitizedTitle}" due to invalid content`);
+  } else {
+    sanitizedTitle = sanitizeHabitName(title);
+    if (sanitizedTitle !== title) {
+      warnings.push(`Title was sanitized from "${title}" to "${sanitizedTitle}"`);
+    }
+  }
+
+  // Create the habit with the validated title
+  const id = await upsertHabit(goalId, sanitizedTitle, schedule, enhancedData);
+
+  return { id, sanitizedTitle, warnings };
 }
 

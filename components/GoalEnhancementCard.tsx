@@ -134,7 +134,7 @@ export function GoalEnhancementCard({
   };
 
   // Only show the card if goal input has some content
-  if (goalInput.trim().length < 3) {
+  if (!goalInput || goalInput.trim().length < 3) {
     return null;
   }
 

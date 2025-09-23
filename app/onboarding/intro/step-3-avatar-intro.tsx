@@ -77,7 +77,7 @@ export default function AvatarIntroStep() {
 
   const handleAvatarTap = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
+
     // Bounce animation
     avatarScale.value = withSequence(
       withSpring(1.2, { damping: 10 }),
@@ -87,16 +87,16 @@ export default function AvatarIntroStep() {
 
   const handleNextAvatar = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
+
     const nextIndex = (currentAvatar + 1) % avatarPersonalities.length;
-    
+
     // Fade out current message
     messageOpacity.value = withTiming(0, { duration: 200 }, () => {
       runOnJS(setCurrentAvatar)(nextIndex);
       // Fade in new message
       messageOpacity.value = withDelay(100, withTiming(1, { duration: 400 }));
     });
-    
+
     // Avatar transition
     avatarScale.value = withSequence(
       withTiming(0.8, { duration: 150 }),
@@ -163,11 +163,11 @@ export default function AvatarIntroStep() {
             style={styles.avatarContainer}
           >
             <Reanimated.View style={[styles.avatarWrapper, animatedAvatarStyle]}>
-              <AvatarRenderer 
-                type={avatar.type} 
-                vitality={85} 
-                size={120} 
-                animated 
+              <AvatarRenderer
+                type={avatar.type}
+                vitality={85}
+                size={120}
+                animated
               />
             </Reanimated.View>
           </TouchableOpacity>
@@ -194,7 +194,7 @@ export default function AvatarIntroStep() {
                 />
               ))}
             </View>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.nextButton}
               onPress={handleNextAvatar}
               activeOpacity={0.7}
@@ -207,7 +207,7 @@ export default function AvatarIntroStep() {
         {/* CTA */}
         <View style={styles.ctaContainer}>
           <Reanimated.View style={animatedButtonStyle}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.button}
               onPress={handleContinue}
               activeOpacity={0.9}
@@ -215,8 +215,6 @@ export default function AvatarIntroStep() {
               <Text style={styles.buttonText}>Let&apos;s do this together</Text>
               <Text style={styles.buttonEmoji}>🤝</Text>
             </TouchableOpacity>
-            
-
           </Reanimated.View>
         </View>
       </View>

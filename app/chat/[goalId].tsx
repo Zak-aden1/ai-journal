@@ -184,17 +184,19 @@ export default function GoalChatScreen() {
     // Load existing conversation or initialize new one
     const initializeChat = async () => {
       const existingMessages = getGoalConversation(goalId);
-      
+
       if (existingMessages.length === 0) {
         // Use relationship-aware personalized greeting
         const hour = new Date().getHours();
         const timeOfDay = hour < 12 ? 'morning' :
                          hour < 17 ? 'afternoon' :
                          hour < 21 ? 'evening' : 'night';
-                         
+
+        // Get current vitality at time of initialization, not from dependency
+        const currentVitality = avatar?.vitality || 50;
         const greeting = getPersonalizedGreeting(timeOfDay, {
           recentActivity: 'first_meeting',
-          mood: safeAvatar.vitality <= 30 ? 'struggling' : safeAvatar.vitality <= 70 ? 'motivated' : 'excited'
+          mood: currentVitality <= 30 ? 'struggling' : currentVitality <= 70 ? 'motivated' : 'excited'
         }) + ` Let's talk about ${currentGoal.title}!`;
 
         const initialMessage: ConversationMessage = {
@@ -206,20 +208,20 @@ export default function GoalChatScreen() {
           emotion: 'supportive',
           vitalityImpact: 2
         };
-        
+
         addConversationMessage(initialMessage);
-        
+
         // Small vitality boost for starting conversation
-        updateAvatarVitality(Math.min(100, safeAvatar.vitality + 2));
+        updateAvatarVitality(Math.min(100, currentVitality + 2));
         updateAvatarMemoryWithActivity('goal_interaction', currentGoal.title);
-        
+
         // Track initial relationship interaction
         addRelationshipInteraction('message');
       }
     };
 
     initializeChat();
-  }, [currentGoal, goalId, getGoalConversation, addConversationMessage, updateAvatarVitality, safeAvatar.vitality, updateAvatarMemoryWithActivity]);
+  }, [currentGoal, goalId]); // Remove frequently changing dependencies
 
   // Messages are now directly from store, no sync needed
 

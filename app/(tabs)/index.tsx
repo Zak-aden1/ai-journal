@@ -19,6 +19,9 @@ import { MotivationalToast } from '@/components/MotivationalToast';
 import { FloatingActionButton } from '@/components/FloatingActionButton';
 import { HabitCreationWizard } from '@/components/habit-creation/HabitCreationWizard';
 import { CreateGoalModal } from '@/components/CreateGoalModal';
+import { LoadingState } from '@/components/LoadingState';
+import { EnhancedEmptyState } from '@/components/EnhancedEmptyState';
+import { QuickActionsModal } from '@/components/QuickActionsModal';
 
 export default function HomeScreen() {
   const { toggleHabitCompletion, avatar } = useAppStore();
@@ -48,6 +51,7 @@ export default function HomeScreen() {
   const [celebrationModal, setCelebrationModal] = useState(false);
   const [showHabitCreation, setShowHabitCreation] = useState(false);
   const [showCreateGoal, setShowCreateGoal] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const [completedHabit, setCompletedHabit] = useState<any>(null);
   // Optimistic completion overrides: habitId -> completed?
   const [optimisticCompleted, setOptimisticCompleted] = useState<Record<string, boolean>>({});
@@ -212,10 +216,89 @@ export default function HomeScreen() {
     },
   ];
 
-  // Avoid early return during loading so modals remain mounted.
+  // Show loading state
+  if (isLoading) {
+    return (
+      <HomeContainer
+        overlayElements={
+          <FloatingActionButton
+          onPress={() => setShowQuickActions(true)}
+          accessibilityLabel="Show quick actions"
+        />
+        }
+      >
+        <LoadingState
+          message="Loading your progress"
+          size="large"
+        />
+
+        {/* Modals for loading state */}
+        <HabitCreationWizard
+          visible={showHabitCreation}
+          onClose={() => {
+            setShowHabitCreation(false);
+            refetch();
+          }}
+        />
+      </HomeContainer>
+    );
+  }
+
+  // Show empty state if no data
+  if (!hasData) {
+    return (
+      <HomeContainer
+        overlayElements={
+          <FloatingActionButton
+          onPress={() => setShowQuickActions(true)}
+          accessibilityLabel="Show quick actions"
+        />
+        }
+      >
+        <EnhancedEmptyState
+          icon="🎯"
+          title="Ready to Start Your Journey?"
+          subtitle="Create your first goal and begin building positive habits that stick."
+          actions={[
+            {
+              label: "Create Goal",
+              onPress: () => setShowCreateGoal(true),
+              style: 'primary',
+            },
+          ]}
+          size="large"
+        />
+
+        {/* Still show modals for empty state */}
+        <CreateGoalModal
+          visible={showCreateGoal}
+          onClose={() => setShowCreateGoal(false)}
+          onGoalCreated={() => {
+            setShowCreateGoal(false);
+            refetch();
+          }}
+        />
+
+        <HabitCreationWizard
+          visible={showHabitCreation}
+          onClose={() => {
+            setShowHabitCreation(false);
+            refetch();
+          }}
+        />
+      </HomeContainer>
+    );
+  }
 
   return (
-    <HomeContainer>
+    <HomeContainer
+      overlayElements={
+        <FloatingActionButton
+          onPress={() => setShowQuickActions(true)}
+          accessibilityLabel="Show quick actions"
+        />
+      }
+    >
       {/* Header */}
       <HomeHeader
         userName="Friend" // You might want to get this from user profile
@@ -253,9 +336,6 @@ export default function HomeScreen() {
         completedCount={visibleCompletedCount}
         onHabitToggle={handleHabitToggle}
       />
-
-      {/* Floating Action Button */}
-      <FloatingActionButton onPress={() => setShowHabitCreation(true)} />
 
       {/* Modals and Overlays */}
       <MicroReflectionSheet
@@ -320,6 +400,37 @@ export default function HomeScreen() {
           setShowCreateGoal(false);
           refetch();
         }}
+      />
+
+      <QuickActionsModal
+        visible={showQuickActions}
+        onClose={() => setShowQuickActions(false)}
+        actions={[
+          {
+            id: 'journal',
+            title: 'Journal Entry',
+            subtitle: 'Reflect on your day',
+            icon: '📖',
+            color: '#4F46E5',
+            onPress: () => setSheet(true),
+          },
+          {
+            id: 'habit',
+            title: 'Add Habit',
+            subtitle: 'Build a new routine',
+            icon: '⚡',
+            color: '#059669',
+            onPress: () => setShowHabitCreation(true),
+          },
+          {
+            id: 'goal',
+            title: 'New Goal',
+            subtitle: 'Set your next target',
+            icon: '🎯',
+            color: '#DC2626',
+            onPress: () => setShowCreateGoal(true),
+          },
+        ]}
       />
     </HomeContainer>
   );

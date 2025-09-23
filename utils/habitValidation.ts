@@ -1,5 +1,5 @@
 /**
- * Utility functions for habit validation and duplicate detection
+ * Utility functions for habit validation, duplicate detection, and data cleanup
  */
 
 export interface HabitSimilarity {
@@ -270,4 +270,191 @@ export function suggestHabitImprovements(habit: string): string[] {
   }
 
   return suggestions;
+}
+
+/**
+ * Check if a habit name appears to be corrupted or test data
+ */
+export function isCorruptedOrTestHabit(habitName: string): boolean {
+  if (!habitName || typeof habitName !== 'string') return true;
+
+  const trimmed = habitName.trim().toLowerCase();
+
+  // Empty or very short names
+  if (trimmed.length < 2) return true;
+
+  // Obvious test patterns
+  const testPatterns = [
+    /^[a-z]\1{4,}$/,  // iiiii, vvvvv, etc.
+    /^[a-z]{6,}$/,    // Random letter sequences
+    /^test/i,
+    /^sample/i,
+    /^dummy/i,
+    /^placeholder/i,
+    /^habit\d*$/i,
+    /^untitled/i,
+    /^new\s*habit/i,
+    /^[0-9]+$/,       // Just numbers
+    /^[^a-z0-9\s]+$/i, // Just special characters
+  ];
+
+  // Check against test patterns
+  if (testPatterns.some(pattern => pattern.test(trimmed))) {
+    return true;
+  }
+
+  // Check for keyboard mashing (sequences of adjacent keys)
+  const keyboardRows = [
+    'qwertyuiop',
+    'asdfghjkl',
+    'zxcvbnm'
+  ];
+
+  for (const row of keyboardRows) {
+    for (let i = 0; i <= row.length - 4; i++) {
+      const sequence = row.slice(i, i + 4);
+      if (trimmed.includes(sequence)) {
+        return true;
+      }
+    }
+  }
+
+  // Check for nonsensical character repetition
+  const hasRepeatedChars = /(.)\1{3,}/.test(trimmed);
+  if (hasRepeatedChars) return true;
+
+  // Check for lack of meaningful content
+  const hasVowels = /[aeiou]/i.test(trimmed);
+  const hasConsonants = /[bcdfghjklmnpqrstvwxyz]/i.test(trimmed);
+  if (!hasVowels || !hasConsonants) return true;
+
+  // Check for randomness (too many consonants in a row or other patterns)
+  const consonantClusters = /[bcdfghjklmnpqrstvwxyz]{5,}/i.test(trimmed);
+  if (consonantClusters) return true;
+
+  return false;
+}
+
+/**
+ * Sanitize and fix a habit name
+ */
+export function sanitizeHabitName(habitName: string): string {
+  if (!habitName || typeof habitName !== 'string') {
+    return 'Practice daily habit';
+  }
+
+  let sanitized = habitName.trim();
+
+  // Remove excessive punctuation
+  sanitized = sanitized.replace(/[^\w\s\-',.!?()&]/g, '');
+
+  // Normalize whitespace
+  sanitized = sanitized.replace(/\s+/g, ' ').trim();
+
+  // If too short or corrupted, provide a default
+  if (sanitized.length < 2 || isCorruptedOrTestHabit(sanitized)) {
+    return 'Practice daily habit';
+  }
+
+  // Capitalize first letter
+  sanitized = sanitized.charAt(0).toUpperCase() + sanitized.slice(1);
+
+  return sanitized;
+}
+
+/**
+ * Generate a meaningful habit name based on category or common patterns
+ */
+export function generateMeaningfulHabitName(category?: string, timeOfDay?: string): string {
+  const habits = {
+    fitness: [
+      'Exercise for 30 minutes',
+      'Go for a walk',
+      'Do yoga',
+      'Stretch for 10 minutes',
+      'Do bodyweight exercises'
+    ],
+    wellness: [
+      'Meditate for 10 minutes',
+      'Practice gratitude',
+      'Take deep breaths',
+      'Journal thoughts',
+      'Practice mindfulness'
+    ],
+    learning: [
+      'Read for 20 minutes',
+      'Study new skill',
+      'Watch educational content',
+      'Practice language',
+      'Learn something new'
+    ],
+    productivity: [
+      'Review daily goals',
+      'Plan tomorrow',
+      'Organize workspace',
+      'Check priorities',
+      'Focus on important task'
+    ],
+    health: [
+      'Drink water',
+      'Take vitamins',
+      'Eat healthy meal',
+      'Get fresh air',
+      'Rest properly'
+    ],
+    creativity: [
+      'Write in journal',
+      'Draw or sketch',
+      'Practice music',
+      'Creative thinking',
+      'Express creativity'
+    ]
+  };
+
+  const timeBasedHabits = {
+    morning: [
+      'Morning meditation',
+      'Morning walk',
+      'Healthy breakfast',
+      'Plan the day',
+      'Morning stretches'
+    ],
+    afternoon: [
+      'Afternoon break',
+      'Healthy lunch',
+      'Quick exercise',
+      'Check progress',
+      'Take a walk'
+    ],
+    evening: [
+      'Evening reflection',
+      'Read before bed',
+      'Prepare for tomorrow',
+      'Evening gratitude',
+      'Wind down routine'
+    ]
+  };
+
+  // Try time-based first
+  if (timeOfDay && timeBasedHabits[timeOfDay as keyof typeof timeBasedHabits]) {
+    const timeHabits = timeBasedHabits[timeOfDay as keyof typeof timeBasedHabits];
+    return timeHabits[Math.floor(Math.random() * timeHabits.length)];
+  }
+
+  // Try category-based
+  if (category && habits[category as keyof typeof habits]) {
+    const categoryHabits = habits[category as keyof typeof habits];
+    return categoryHabits[Math.floor(Math.random() * categoryHabits.length)];
+  }
+
+  // Default options
+  const defaultHabits = [
+    'Practice daily habit',
+    'Do something positive',
+    'Make progress today',
+    'Focus on growth',
+    'Take care of yourself'
+  ];
+
+  return defaultHabits[Math.floor(Math.random() * defaultHabits.length)];
 }
