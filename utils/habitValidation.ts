@@ -207,19 +207,19 @@ export function validateHabitInput(
   }
 
   if (trimmed.length < 3) {
-    return { isValid: false, error: 'Habit should be at least 3 characters long' };
+    return { isValid: false, error: 'Habit should be at least 3 characters long. Try: "Read daily" or "Walk 10 minutes"' };
   }
 
   if (trimmed.length > 80) {
     return { isValid: false, error: 'Habit should be less than 80 characters' };
   }
 
-  // Check for repeated characters (spam detection)
-  if (/^(.)\1{4,}/.test(trimmed)) {
-    return { isValid: false, error: 'Please enter a meaningful habit name' };
+  // Use comprehensive corruption detection (prevents spam/test habits at source)
+  if (isCorruptedOrTestHabit(trimmed)) {
+    return { isValid: false, error: 'Please enter a meaningful habit name. Try: "Read 20 pages daily" or "Exercise for 30 minutes"' };
   }
 
-  // Check for meaningful content
+  // Check for meaningful content (additional check)
   if (!/[a-zA-Z0-9]/.test(trimmed)) {
     return { isValid: false, error: 'Habit must contain letters or numbers' };
   }
@@ -230,15 +230,25 @@ export function validateHabitInput(
   if (similarity.isSimilar && similarity.confidence > 0.9) {
     return {
       isValid: false,
-      error: `Too similar to "${similarity.similarHabit}". ${similarity.reason}.`,
+      error: `Too similar to "${similarity.similarHabit}". ${similarity.reason}. Try adding details like time, duration, or location.`,
       similarity
     };
   }
 
+  // Convert high-confidence similarities to errors instead of warnings
+  if (similarity.isSimilar && similarity.confidence > 0.8) {
+    return {
+      isValid: false,
+      error: `Very similar to "${similarity.similarHabit}". Make it more specific - add duration (20 minutes), frequency (daily), or details.`,
+      similarity
+    };
+  }
+
+  // Only allow low-confidence similarities as warnings
   if (similarity.isSimilar && similarity.confidence > 0.65) {
     return {
       isValid: true,
-      warning: `Similar to "${similarity.similarHabit}". ${similarity.reason}. Continue anyway?`,
+      warning: `Similar to "${similarity.similarHabit}". Consider making it more specific.`,
       similarity
     };
   }
@@ -273,6 +283,37 @@ export function suggestHabitImprovements(habit: string): string[] {
 }
 
 /**
+ * Generate smart habit examples based on user input patterns
+ */
+export function generateHabitExamples(input: string): string[] {
+  const normalized = input.toLowerCase().trim();
+  const examples: string[] = [];
+
+  // Exercise-related
+  if (/\b(exercise|workout|gym|fitness|run|walk|swim)\b/i.test(normalized)) {
+    examples.push('Exercise for 30 minutes daily', 'Go for a 20-minute walk', 'Complete 3 gym sessions per week');
+  }
+  // Reading-related
+  else if (/\b(read|book|study|learn)\b/i.test(normalized)) {
+    examples.push('Read 20 pages daily', 'Study for 1 hour each morning', 'Complete 2 chapters per week');
+  }
+  // Health-related
+  else if (/\b(health|diet|eat|nutrition|water)\b/i.test(normalized)) {
+    examples.push('Drink 8 glasses of water daily', 'Eat 5 servings of vegetables', 'Plan meals every Sunday');
+  }
+  // Skill-related
+  else if (/\b(practice|skill|code|write|music|language)\b/i.test(normalized)) {
+    examples.push('Practice coding for 1 hour daily', 'Write 500 words each day', 'Practice Spanish for 30 minutes');
+  }
+  // Generic examples
+  else {
+    examples.push('Read 15 minutes daily', 'Exercise 3 times per week', 'Meditate for 10 minutes each morning');
+  }
+
+  return examples.slice(0, 3);
+}
+
+/**
  * Check if a habit name appears to be corrupted or test data
  */
 export function isCorruptedOrTestHabit(habitName: string): boolean {
@@ -286,7 +327,7 @@ export function isCorruptedOrTestHabit(habitName: string): boolean {
   // Obvious test patterns
   const testPatterns = [
     /^[a-z]\1{4,}$/,  // iiiii, vvvvv, etc.
-    /^[a-z]{6,}$/,    // Random letter sequences
+    /^[bcdfghjklmnpqrstvwxyz]+$/i, // Only consonants (no vowels at all)
     /^test/i,
     /^sample/i,
     /^dummy/i,
@@ -296,6 +337,10 @@ export function isCorruptedOrTestHabit(habitName: string): boolean {
     /^new\s*habit/i,
     /^[0-9]+$/,       // Just numbers
     /^[^a-z0-9\s]+$/i, // Just special characters
+    /^[aeiou]{5,}$/i, // Too many vowels only (aaaaaa, eeeeee)
+    /^[bcdfghjklmnpqrstvwxyz]{6,}$/i, // Too many consonants only (cssaccsa pattern)
+    /^([a-z])\1*([a-z])\2*([a-z])\3*$/i, // Alternating repeated chars (ababab, xyzxyz)
+    /^(.{2,3})\1{2,}$/i, // Repeating short patterns (abcabc, xyzxyzxyz)
   ];
 
   // Check against test patterns
@@ -331,6 +376,30 @@ export function isCorruptedOrTestHabit(habitName: string): boolean {
   // Check for randomness (too many consonants in a row or other patterns)
   const consonantClusters = /[bcdfghjklmnpqrstvwxyz]{5,}/i.test(trimmed);
   if (consonantClusters) return true;
+
+  // Advanced pattern detection for random-looking text
+  if (trimmed.length >= 5) {
+    // Check for unusual letter frequency patterns (catches things like "ougiggut")
+    const letterCounts = {};
+    for (const char of trimmed.toLowerCase()) {
+      if (/[a-z]/.test(char)) {
+        letterCounts[char] = (letterCounts[char] || 0) + 1;
+      }
+    }
+
+    const uniqueLetters = Object.keys(letterCounts).length;
+    const totalLetters = Object.values(letterCounts).reduce((sum, count) => sum + count, 0);
+
+    // If word has 6+ letters but only 3-4 unique letters, it might be spam
+    if (totalLetters >= 6 && uniqueLetters <= 4) {
+      // Check if it has any repeated letters in unusual positions
+      const maxCount = Math.max(...Object.values(letterCounts));
+      if (maxCount >= 3) return true;
+    }
+
+    // Check for alternating patterns (ababa, xyxyx)
+    if (/^([a-z])([a-z])\1\2/i.test(trimmed)) return true;
+  }
 
   return false;
 }

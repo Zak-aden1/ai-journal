@@ -12,7 +12,7 @@ import InteractiveIntro from './intro/interactive-intro';
 // Main Onboarding Steps (7 steps)
 import AvatarPersonalizationStep from './steps/step-3-avatar-personalization';
 import GoalDetailsStep from './steps/step-5-goal-details';
-import HabitSelectionStep from './steps/step-3-habit-selection';
+import HabitCreationStep from './steps/step-4-habit-creation';
 import YourWhyStep from './steps/step-7-your-why';
 import FirstCheckInStep from './steps/step-5-first-check-in';
 import InteractiveTutorialStep from './steps/step-8-interactive-tutorial';
@@ -97,7 +97,7 @@ export default function OnboardingScreen() {
             case 3:
               return <YourWhyStep />;
             case 4:
-              return <HabitSelectionStep />;
+              return <HabitCreationStep />;
             case 5:
               return <FirstCheckInStep />;
             case 6:
@@ -128,7 +128,7 @@ export default function OnboardingScreen() {
     case 3:
       return <YourWhyStep />;
     case 4:
-      return <HabitSelectionStep />;
+      return <HabitCreationStep />;
     case 5:
       return <FirstCheckInStep />;
     case 6:

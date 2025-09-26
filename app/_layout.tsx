@@ -36,14 +36,15 @@ export default function RootLayout() {
   console.log('onboarding store state:', useOnboardingStore.getState());
   
   // Redirect to onboarding if not completed and not already there
-  // if (!isOnboarded && !pathname?.startsWith('/onboarding')) {
-  //   return (
-  //     <GestureHandlerRootView style={{ flex: 1 }}>
-  //       <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
-  //         <Redirect href="/onboarding" />
-  //       </ThemeProvider>
-  //     </GestureHandlerRootView>
-  //   );  }
+  if (!isOnboarded && !pathname?.startsWith('/onboarding')) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+          <Redirect href="/onboarding" />
+        </ThemeProvider>
+      </GestureHandlerRootView>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

@@ -8,6 +8,12 @@ import { HabitSchedule } from '@/lib/db';
 type Mode = 'Companion' | 'Coach';
 type Mood = '😊'|'😐'|'😔'|'😤'|'😍';
 
+interface HabitTemplate {
+  action: string;
+  timing: string;
+  goal: string;
+}
+
 // Secure storage adapter for onboarding persistence
 const secureStorage = {
   getItem: async (name: string): Promise<string | null> => {
@@ -56,12 +62,19 @@ interface OnboardingData {
   deepWhy: string;
   whyVoicePath: string | null;
   
-  // Step 7 - Habits
+  // Step 7 - Habits (Legacy - kept for backward compatibility)
   selectedObstacles: string[];
   customObstacles: string[];
   selectedHabits: string[];
   customHabits: string[];
   habitSchedules: Record<string, HabitSchedule>;
+
+  // New Habit Template (Step 4) - Legacy
+  habitTemplate: HabitTemplate | null;
+  habitFullText: string;
+
+  // Simple Habit (Step 4) - New approach
+  simpleHabit: string;
   
   // Step 8 - Tutorial Completion
   tutorialCompleted: boolean;
@@ -106,12 +119,15 @@ interface OnboardingStore {
   removeHabit: (habit: string) => void;
   setHabitSchedule: (habit: string, schedule: HabitSchedule) => void;
   removeHabitSchedule: (habit: string) => void;
+  setHabitTemplate: (template: HabitTemplate, fullText: string) => void;
+  setSimpleHabit: (habit: string) => void;
   setTutorialCompleted: () => void;
   setFirstHabitCompleted: () => void;
   setPrivacy: (key: keyof OnboardingData['privacy'], value: boolean) => void;
   setFirstCheckIn: (mood: Mood, entry: string) => void;
   completeOnboarding: () => void;
   resetOnboarding: () => void;
+  forceResetOnboarding: () => Promise<void>;
 
   // Recovery
   hasRecoveryData: () => Promise<boolean>;
@@ -147,6 +163,9 @@ export const useOnboardingStore = create<OnboardingStore>()(
       selectedHabits: [],
       customHabits: [],
       habitSchedules: {},
+      habitTemplate: null,
+      habitFullText: '',
+      simpleHabit: '',
       tutorialCompleted: false,
       firstHabitCompleted: false,
       privacy: { localOnly: true, voiceRecording: false },
@@ -248,6 +267,15 @@ export const useOnboardingStore = create<OnboardingStore>()(
     removeHabitSchedule: (habit) => set((state) => {
       delete state.data.habitSchedules[habit];
     }),
+
+    setHabitTemplate: (template, fullText) => set((state) => {
+      state.data.habitTemplate = template;
+      state.data.habitFullText = fullText;
+    }),
+
+    setSimpleHabit: (habit) => set((state) => {
+      state.data.simpleHabit = habit;
+    }),
     
     setTutorialCompleted: () => set((state) => { 
       state.data.tutorialCompleted = true;
@@ -295,6 +323,9 @@ export const useOnboardingStore = create<OnboardingStore>()(
         selectedHabits: [],
         customHabits: [],
         habitSchedules: {},
+        habitTemplate: null,
+        habitFullText: '',
+        simpleHabit: '',
         tutorialCompleted: false,
         firstHabitCompleted: false,
         privacy: { localOnly: true, voiceRecording: false },
@@ -331,6 +362,9 @@ export const useOnboardingStore = create<OnboardingStore>()(
             selectedHabits: [],
             customHabits: [],
             habitSchedules: {},
+            habitTemplate: null,
+            habitFullText: '',
+            simpleHabit: '',
             tutorialCompleted: false,
             firstHabitCompleted: false,
             privacy: { localOnly: true, voiceRecording: false },
@@ -370,7 +404,7 @@ export const useOnboardingStore = create<OnboardingStore>()(
       if (state.data.avatarName) completedSteps.push('Avatar personalized');
       if (state.data.goalTitle) completedSteps.push('Goal defined');
       if (state.data.deepWhy) completedSteps.push('Why explored');
-      if (state.data.selectedHabits.length > 0) completedSteps.push('Habits selected');
+      if (state.data.habitTemplate) completedSteps.push('Habit created');
       if (state.data.firstEntry) completedSteps.push('First check-in complete');
 
       return {
@@ -386,7 +420,7 @@ export const useOnboardingStore = create<OnboardingStore>()(
         case 1: return data.avatarName.trim().length >= 2; // Avatar personalization
         case 2: return data.goalTitle.trim().length >= 3; // Goal details
         case 3: return data.deepWhy.trim().length >= 10; // Your why
-        case 4: return true; // Habit selection - optional, can always proceed
+        case 4: return data.habitTemplate !== null; // Habit creation - must create a habit
         case 5: return data.firstMood !== null && data.firstEntry.trim().length >= 10; // First check-in
         case 6: return data.tutorialCompleted && data.firstHabitCompleted; // Tutorial
         case 7: return true; // Privacy - final step
@@ -405,6 +439,15 @@ export const useOnboardingStore = create<OnboardingStore>()(
       data: state.data,
       // Don't persist isComplete to allow recovery
     }),
-    version: 1,
+    version: 2,
+    migrate: (persistedState: any, version: number) => {
+      // Migrate from version 1 to 2: Add simpleHabit field
+      if (version < 2) {
+        if (persistedState?.data && persistedState.data.simpleHabit === undefined) {
+          persistedState.data.simpleHabit = '';
+        }
+      }
+      return persistedState;
+    },
   }
 ));

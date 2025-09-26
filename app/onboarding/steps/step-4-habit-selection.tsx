@@ -8,7 +8,7 @@ import { createOnboardingStyles } from '@/components/goal-creation/OnboardingGoa
 import { SUGGESTED_HABITS } from '@/components/goal-creation/GoalCreationFlow';
 import { HabitSchedule } from '@/lib/db';
 import { useHabitSuggestions, type HabitSuggestionsRequest, type HabitSuggestion } from '@/services/ai/habitSuggestions';
-import { validateHabitInput, suggestHabitImprovements } from '@/utils/habitValidation';
+import { validateHabitInput, suggestHabitImprovements, generateHabitExamples } from '@/utils/habitValidation';
 
 export default function HabitSelectionStep() {
   const { data, addHabit, removeHabit, setStep, setHabitSchedule } = useOnboardingStore();
@@ -36,6 +36,46 @@ export default function HabitSelectionStep() {
 
   const [customHabit, setCustomHabit] = React.useState('');
   const [habitValidation, setHabitValidation] = useState<{ isValid: boolean; warning?: string; error?: string }>({ isValid: true });
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(false);
+  const [editingHabit, setEditingHabit] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+
+  // Auto-load AI suggestions when component mounts (if data is available)
+  useEffect(() => {
+    const autoLoadSuggestions = async () => {
+      // Only attempt once and if we have the required data
+      if (autoLoadAttempted || !data.goalTitle || !data.goalCategory || !data.selectedAvatarType) {
+        return;
+      }
+
+      // Don't auto-load if already loaded or currently loading
+      if (aiSuggestionsLoaded || isLoading) {
+        return;
+      }
+
+      console.log('🤖 Auto-loading AI habit suggestions for:', data.goalTitle);
+      setAutoLoadAttempted(true);
+
+      const request: HabitSuggestionsRequest = {
+        goalTitle: data.goalTitle,
+        goalCategory: data.goalCategory,
+        userId: 'onboarding-user',
+        context: {
+          avatarType: data.selectedAvatarType,
+          avatarName: data.avatarName,
+          existingHabits: data.selectedHabits
+        }
+      };
+
+      setShowAISuggestions(true);
+      await getSuggestions(request);
+      setAiSuggestionsLoaded(true);
+    };
+
+    // Small delay to avoid loading immediately on mount
+    const timer = setTimeout(autoLoadSuggestions, 500);
+    return () => clearTimeout(timer);
+  }, [data.goalTitle, data.goalCategory, data.selectedAvatarType, autoLoadAttempted, aiSuggestionsLoaded, isLoading, getSuggestions, data.avatarName, data.selectedHabits]);
 
   // Manual AI suggestions trigger
   const loadAISuggestions = async () => {
@@ -133,18 +173,18 @@ export default function HabitSelectionStep() {
       return;
     }
 
-    // Handle similar habits with warning
+    // Handle similar habits with warning (informational only)
     if (validation.warning && validation.similarity) {
       Alert.alert(
         'Similar Habit Found',
-        validation.warning,
+        validation.warning.replace('. Continue anyway?', ''),
         [
           {
-            text: 'Cancel',
+            text: 'Edit Habit',
             style: 'cancel'
           },
           {
-            text: 'Add Anyway',
+            text: 'Continue',
             onPress: () => {
               addHabit(habit);
               setCustomHabit('');
@@ -181,6 +221,72 @@ export default function HabitSelectionStep() {
     if (customizingHabit) {
       setHabitSchedule(customizingHabit, schedule);
     }
+  };
+
+  const handleEditHabit = (habitName: string) => {
+    setEditingHabit(habitName);
+    setEditingText(habitName);
+  };
+
+  const handleSaveEditedHabit = () => {
+    if (!editingHabit || !editingText.trim()) return;
+
+    const validation = validateHabitInput(editingText, data.selectedHabits.filter(h => h !== editingHabit));
+
+    if (!validation.isValid) {
+      Alert.alert('Invalid Habit', validation.error || 'Please enter a valid habit name');
+      return;
+    }
+
+    // Handle similarity warnings for editing
+    if (validation.warning) {
+      Alert.alert(
+        'Similar Habit Found',
+        validation.warning.replace('. Consider making it more specific.', ''),
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          },
+          {
+            text: 'Save Anyway',
+            onPress: () => {
+              saveEditedHabit();
+            }
+          }
+        ]
+      );
+      return;
+    }
+
+    saveEditedHabit();
+  };
+
+  const saveEditedHabit = () => {
+    if (!editingHabit || !editingText.trim()) return;
+
+    // Save the schedule before removing the old habit
+    const existingSchedule = data.habitSchedules[editingHabit];
+
+    // Remove the old habit
+    removeHabit(editingHabit);
+
+    // Add the new habit
+    addHabit(editingText.trim());
+
+    // Restore the schedule with the new habit name
+    if (existingSchedule) {
+      setHabitSchedule(editingText.trim(), existingSchedule);
+    }
+
+    // Clear editing state
+    setEditingHabit(null);
+    setEditingText('');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingHabit(null);
+    setEditingText('');
   };
 
   const getHabitSchedule = (habitName: string): HabitSchedule => {
@@ -417,7 +523,7 @@ export default function HabitSelectionStep() {
             {(habitValidation.error || habitValidation.warning) && customHabit.trim().length > 2 && (
               <View style={{
                 marginTop: 8,
-                padding: 8,
+                padding: 12,
                 borderRadius: 8,
                 backgroundColor: habitValidation.error ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
                 borderWidth: 1,
@@ -426,10 +532,54 @@ export default function HabitSelectionStep() {
                 <Text style={{
                   color: habitValidation.error ? '#ef4444' : '#f59e0b',
                   fontSize: 12,
-                  fontWeight: '500'
+                  fontWeight: '500',
+                  marginBottom: 6
                 }}>
                   {habitValidation.error ? '⚠️ ' : '💡 '}{habitValidation.error || habitValidation.warning}
                 </Text>
+
+                {/* Show helpful examples for errors */}
+                {habitValidation.error && (() => {
+                  const examples = generateHabitExamples(customHabit);
+                  if (examples.length > 0) {
+                    return (
+                      <View>
+                        <Text style={{
+                          color: 'rgba(255,255,255,0.9)',
+                          fontSize: 11,
+                          fontWeight: '600',
+                          marginBottom: 4
+                        }}>
+                          Try these examples:
+                        </Text>
+                        {examples.map((example, index) => (
+                          <TouchableOpacity
+                            key={index}
+                            style={{
+                              backgroundColor: 'rgba(255,255,255,0.1)',
+                              borderRadius: 6,
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              marginBottom: 3,
+                              borderWidth: 1,
+                              borderColor: 'rgba(255,255,255,0.2)'
+                            }}
+                            onPress={() => setCustomHabit(example)}
+                          >
+                            <Text style={{
+                              color: '#FFFFFF',
+                              fontSize: 11,
+                              fontWeight: '500'
+                            }}>
+                              "{example}"
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    );
+                  }
+                  return null;
+                })()}
               </View>
             )}
           </View>
@@ -560,20 +710,48 @@ export default function HabitSelectionStep() {
               borderWidth: 1,
               borderColor: 'rgba(239, 68, 68, 0.3)'
             }}>
-              <Text style={{
-                color: '#FFFFFF',
-                fontSize: 14,
-                fontWeight: '600',
-                marginBottom: 4
-              }}>
-                ⚠️ Using fallback suggestions
-              </Text>
-              <Text style={{
-                color: 'rgba(255,255,255,0.8)',
-                fontSize: 12
-              }}>
-                AI suggestions temporarily unavailable
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    color: '#FFFFFF',
+                    fontSize: 14,
+                    fontWeight: '600',
+                    marginBottom: 4
+                  }}>
+                    ⚠️ Using smart fallback suggestions
+                  </Text>
+                  <Text style={{
+                    color: 'rgba(255,255,255,0.8)',
+                    fontSize: 12
+                  }}>
+                    AI suggestions temporarily unavailable
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: 'rgba(255,255,255,0.2)',
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.3)',
+                    marginLeft: 12
+                  }}
+                  onPress={() => {
+                    clearError();
+                    loadAISuggestions();
+                  }}
+                  disabled={isLoading}
+                >
+                  <Text style={{
+                    color: '#FFFFFF',
+                    fontSize: 11,
+                    fontWeight: '600'
+                  }}>
+                    {isLoading ? 'Retrying...' : 'Retry AI'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
@@ -713,39 +891,139 @@ export default function HabitSelectionStep() {
                       paddingTop: index > 0 ? 6 : 0,
                     }}
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text style={{
-                        color: '#FFFFFF',
-                        fontSize: 14,
-                        fontWeight: '600',
-                        marginBottom: 2
-                      }}>
-                        {habitName}
-                      </Text>
-                      <Text style={{
-                        color: 'rgba(255,255,255,0.7)',
-                        fontSize: 12
-                      }}>
-                        {displaySchedule}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      style={{
-                        backgroundColor: 'rgba(255,255,255,0.2)',
-                        borderRadius: 6,
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                      }}
-                      onPress={() => handleCustomizeSchedule(habitName)}
-                    >
-                      <Text style={{
-                        color: '#FFFFFF',
-                        fontSize: 11,
-                        fontWeight: '600'
-                      }}>
-                        Edit
-                      </Text>
-                    </TouchableOpacity>
+                    {editingHabit === habitName ? (
+                      // Editing mode
+                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                        <TextInput
+                          value={editingText}
+                          onChangeText={setEditingText}
+                          style={{
+                            flex: 1,
+                            backgroundColor: 'rgba(255,255,255,0.15)',
+                            borderRadius: 8,
+                            padding: 8,
+                            color: '#FFFFFF',
+                            fontSize: 14,
+                            marginRight: 8,
+                            borderWidth: 1,
+                            borderColor: 'rgba(255,255,255,0.3)'
+                          }}
+                          placeholder="Edit habit name"
+                          placeholderTextColor="rgba(255,255,255,0.5)"
+                          returnKeyType="done"
+                          onSubmitEditing={handleSaveEditedHabit}
+                          autoFocus
+                        />
+                        <TouchableOpacity
+                          style={{
+                            backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                            borderRadius: 6,
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            marginRight: 4
+                          }}
+                          onPress={handleSaveEditedHabit}
+                        >
+                          <Text style={{
+                            color: '#FFFFFF',
+                            fontSize: 11,
+                            fontWeight: '600'
+                          }}>
+                            Save
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{
+                            backgroundColor: 'rgba(239, 68, 68, 0.8)',
+                            borderRadius: 6,
+                            paddingHorizontal: 8,
+                            paddingVertical: 4
+                          }}
+                          onPress={handleCancelEdit}
+                        >
+                          <Text style={{
+                            color: '#FFFFFF',
+                            fontSize: 11,
+                            fontWeight: '600'
+                          }}>
+                            Cancel
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      // Display mode
+                      <>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{
+                            color: '#FFFFFF',
+                            fontSize: 14,
+                            fontWeight: '600',
+                            marginBottom: 2
+                          }}>
+                            {habitName}
+                          </Text>
+                          <Text style={{
+                            color: 'rgba(255,255,255,0.7)',
+                            fontSize: 12
+                          }}>
+                            {displaySchedule}
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', gap: 4 }}>
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: 'rgba(255,255,255,0.2)',
+                              borderRadius: 6,
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                            }}
+                            onPress={() => handleEditHabit(habitName)}
+                          >
+                            <Text style={{
+                              color: '#FFFFFF',
+                              fontSize: 11,
+                              fontWeight: '600'
+                            }}>
+                              ✏️
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: 'rgba(255,255,255,0.2)',
+                              borderRadius: 6,
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                            }}
+                            onPress={() => handleCustomizeSchedule(habitName)}
+                          >
+                            <Text style={{
+                              color: '#FFFFFF',
+                              fontSize: 11,
+                              fontWeight: '600'
+                            }}>
+                              ⚙️
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: 'rgba(239, 68, 68, 0.3)',
+                              borderRadius: 6,
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                            }}
+                            onPress={() => removeHabit(habitName)}
+                          >
+                            <Text style={{
+                              color: '#FFFFFF',
+                              fontSize: 11,
+                              fontWeight: '600'
+                            }}>
+                              🗑️
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </>
+                    )}
                   </View>
                 );
               })}
